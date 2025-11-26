@@ -49,9 +49,29 @@ def extract_text_sync(file_path: Union[str, Path]):
     for page in document.pages:
         page_data = {
             "page_number": page.page_number,
+            "logo_text": [],
             "form_fields": [],
             "tables": []
         }
+
+        # Extract logo/header text from blocks
+        page_height = page.dimension.height if page.dimension else 1.0
+        header_threshold = 0.10  # Top 15% of page
+
+        for block in page.blocks:
+            text = get_text(block.layout)
+            if text and block.layout.bounding_poly:
+                # Get Y-coordinate of block
+                vertices = block.layout.bounding_poly.normalized_vertices
+                if vertices and len(vertices) > 0:
+                    # Check if block is in header region
+                    avg_y = sum(v.y for v in vertices) / len(vertices)
+                    if avg_y < header_threshold:
+                        page_data["logo_text"].append({
+                            "text": text,
+                            "confidence": block.layout.confidence if hasattr(block.layout, 'confidence') else None
+                        })
+
 
         # Extract form fields
         for field in page.form_fields:

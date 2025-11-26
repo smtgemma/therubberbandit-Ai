@@ -14,6 +14,7 @@ credentials = service_account.Credentials.from_service_account_file(
     settings.gcp_key_path
 )
 client = documentai.DocumentProcessorServiceClient(credentials=credentials)
+
 PROCESSOR_NAME = f"projects/{settings.gcp_project_id}/locations/{settings.gcp_location}/processors/{settings.gcp_processor_id}"
 
 def get_text_from_text_anchor(document_text, text_anchor):
@@ -56,7 +57,6 @@ async def upload_and_extract(files: List[UploadFile] = File(...)):
             for file in files:
                 content = await file.read()
                 image_contents.append(content)
-            
             # Convert images to PDF
             contents = img2pdf.convert(image_contents)
             mime_type = "application/pdf"
@@ -69,20 +69,77 @@ async def upload_and_extract(files: List[UploadFile] = File(...)):
         document = result.document
 
         form_fields = []
+        logo_text = []
+        apr_candidates = [] 
+
+
         for page in document.pages:
+            # Extract logo text from blocks in header region
+            page_height = page.dimension.height if page.dimension else 1.0
+            header_threshold = 0.15  # Top 15% of page
+            
+            for block in page.blocks:
+                text = get_text_from_text_anchor(document.text, block.layout.text_anchor)
+                if text and block.layout.bounding_poly:
+                    vertices = block.layout.bounding_poly.normalized_vertices
+                    if vertices and len(vertices) > 0:
+                        # Calculate average Y position
+                        avg_y = sum(v.y for v in vertices) / len(vertices)
+                        if avg_y < header_threshold:
+                            logo_text.append({
+                                "text": text,
+                                "confidence": block.layout.confidence if hasattr(block.layout, 'confidence') else None
+                            })
+
+            # Extract form fields
             for field in page.form_fields:
                 field_name = get_text_from_text_anchor(document.text, field.field_name.text_anchor).strip()
                 field_value = get_text_from_text_anchor(document.text, field.field_value.text_anchor).strip()
-
                 form_fields.append({
                     "name": field_name,
                     "value": field_value,
                     "confidence": field.field_value.confidence,
                 })
+    
 
+    # -----------------------------
+            # 🧠 NEW SECTION: APR detection
+            # -----------------------------
+            import re
+            apr_pattern = re.compile(r"(\d{1,2}\.\d{1,2})\s*%")
+
+            # Combine all page text (including tables)
+            page_text = " ".join([
+                get_text_from_text_anchor(document.text, b.layout.text_anchor)
+                for b in page.blocks
+                if b.layout and b.layout.text_anchor
+            ])
+
+            # Search in the entire text
+            matches = apr_pattern.findall(page_text)
+            if matches:
+                apr_candidates.extend(matches)
+        # -----------------------------
+        # END APR DETECTION SECTION
+        # -----------------------------
+
+        # Select the most likely APR
+        detected_apr = None
+        if apr_candidates:
+            try:
+                apr_values = [float(a) for a in apr_candidates if float(a) < 20]
+                if apr_values:
+                    detected_apr = min(apr_values)
+            except ValueError:
+                pass
+
+        # ✅ Return full response
         return ExtractResponse(
             text=document.text,
-            form_fields=form_fields
+            form_fields=form_fields,
+            logo_text=logo_text,
+            detected_apr=detected_apr  # <-- Add this field in your ExtractResponse schema
         )
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
