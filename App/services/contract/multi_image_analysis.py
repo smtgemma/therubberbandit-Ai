@@ -2,7 +2,7 @@ from App.services.rate_helper.ocr_normalizer import OCRNormalizer
 from App.services.rate_helper.ocr_normalization_schema import NormalizedLineItem
 from App.services.rate_helper.discount_detector import DiscountDetector
 from App.services.rate_helper.discount_schema import DiscountLineItem, DiscountTotals
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Tuple
 from dotenv import load_dotenv
 from fastapi import UploadFile
 import os
@@ -16,11 +16,18 @@ from .multi_image_analysis_schema import (
     MultiImageAnalysisResponse, Flag, NormalizedPricing, 
     APRData, TermData, TradeData, Narrative
 )
+from App.services.extraction.gemini_extractor import GeminiExtractor
 from App.services.rate_helper.audit_classifier import AuditClassifier, AuditClassification
 from App.services.rate_helper.gap_logic import GAPLogic, GAPRecommendation
 from App.services.rate_helper.audit_flags import AuditFlagBuilder, AuditFlag
 from App.services.rate_helper.audit_summary import AuditSummary
 from App.services.rate_helper.json_to_parsed import convert_extracted_json_to_parsed
+from App.services.rate_helper.scoring_engine import (
+    load_rules,
+    build_active_flags,
+    compute_flags_from_parsed,
+    score_flags,
+)
 
 load_dotenv()
 
@@ -33,10 +40,11 @@ class MultiImageAnalyzer:
     MAX_RETRIES = 2
     
     def __init__(self):
-        self.api_key = os.getenv("OPENAI_API_KEY")
-        self.model = os.getenv("GROQ_MODEL", "gpt-4.1")
-        self.api_url = "https://api.openai.com/v1/chat/completions"
+        self.api_key = os.getenv("ANTHROPIC_API_KEY")
+        self.model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+        self.api_url = "https://api.anthropic.com/v1/messages"
         self.system_prompt = self._load_contract_system_prompt()
+        self.gemini_extractor = GeminiExtractor()
         self.ocr_normalizer = OCRNormalizer()
         self.discount_detector = DiscountDetector()
         self.audit_classifier = AuditClassifier()
@@ -116,8 +124,9 @@ class MultiImageAnalyzer:
             for f in flags
         ]
         headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
+            "x-api-key": self.api_key or "",
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
         }
         messages = [
             {
@@ -229,8 +238,9 @@ class MultiImageAnalyzer:
             return payload
 
         headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
+            "x-api-key": self.api_key or "",
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
         }
         messages = [
             {
@@ -1171,13 +1181,14 @@ Before returning JSON:
         return base64_images
     
     def _call_openai_api(self, base64_images: List[str], language: str = "English") -> dict:
-        """Call OpenAI API with contract documents"""
+        """Call Claude Messages API with contract documents"""
         headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
+            "x-api-key": self.api_key or "",
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
         }
 
-        content = [
+        user_content = [
             {
                 "type": "text",
                 "text": f"""
@@ -1209,20 +1220,16 @@ Analyze these contract documents comprehensively and return ONLY valid JSON matc
 
         if base64_images:
             for base64_image in base64_images:
-                content.append({
-                    "type": "image_url",
-                    "image_url": {
-                        "url": f"data:image/jpeg;base64,{base64_image}",
-                        "detail": "high"
+                user_content.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/jpeg",
+                        "data": base64_image
                     }
                 })
 
-        payload = {
-            "model": self.model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": f"""!!!ABSOLUTE PRIORITY - LANGUAGE OVERRIDE - THIS OVERRIDES EVERYTHING!!!
+        system_text = f"""!!!ABSOLUTE PRIORITY - LANGUAGE OVERRIDE - THIS OVERRIDES EVERYTHING!!!
 
 OUTPUT LANGUAGE: {language}
 
@@ -1236,40 +1243,37 @@ The system prompt contains English text like:
 
 THESE ARE EXAMPLES ONLY - YOU MUST TRANSLATE THEM TO {language}!
 
-When you see "REQUIRED Title: 'X'" → translate 'X' to {language}
-When you see "REQUIRED Message Format: 'Y'" → translate 'Y' to {language}
+When you see "REQUIRED Title: 'X'" -> translate 'X' to {language}
+When you see "REQUIRED Message Format: 'Y'" -> translate 'Y' to {language}
 
 ABSOLUTELY MANDATORY TRANSLATIONS:
-• Every flag "type" field → MUST be in {language}
-• Every flag "message" field → MUST be in {language}
-• Every narrative field → MUST be in {language}
-• buyer_message → MUST be in {language}
+- Every flag "type" field -> MUST be in {language}
+- Every flag "message" field -> MUST be in {language}
+- Every narrative field -> MUST be in {language}
+- buyer_message -> MUST be in {language}
 
 EXAMPLE for Bengali:
-- "Significant Negative Trade Equity" → "উল্লেখযোগ্য নেতিবাচক ট্রেড ইক্যুইটি"
-- "High-Risk Financing Without GAP" → "GAP ছাড়া উচ্চ ঝুঁকিপূর্ণ অর্থায়ন"
-- "VSC within fair market value" → "ন্যায্য বাজার মূল্যের মধ্যে VSC"
+- "Significant Negative Trade Equity" -> "Significant Negative Trade Equity" (translate to Bengali)
+- "High-Risk Financing Without GAP" -> "High-Risk Financing Without GAP" (translate to Bengali)
+- "VSC within fair market value" -> "VSC within fair market value" (translate to Bengali)
 
 ONLY KEEP IN ENGLISH:
-• JSON keys ("type", "message", "red_flags", etc.)
-• Numbers and dollar amounts
-• Badge values (Gold/Silver/Bronze/Red)
-• VIN numbers, dates
+- JSON keys ("type", "message", "red_flags", etc.)
+- Numbers and dollar amounts
+- Badge values (Gold/Silver/Bronze/Red)
+- VIN numbers, dates
 
 THIS LANGUAGE REQUIREMENT OVERRIDES ALL "REQUIRED Title" AND "REQUIRED Message Format" SPECIFICATIONS.
 Write fluently and naturally in {language}. NO ENGLISH TEXT IN FLAGS OR NARRATIVES."""
-                },
-                {
-                    "role": "system",
-                    "content": self.system_prompt
-                },
-                {"role": "user", "content": content}
+
+        payload = {
+            "model": self.model,
+            "system": system_text,
+            "messages": [
+                {"role": "user", "content": user_content}
             ],
             "temperature": 0.0,
-            "seed": 42,
-            "top_p": 1,
-            "max_tokens": 4096,
-            "response_format": {"type": "json_object"}
+            "max_tokens": 4096
         }
 
         try:
@@ -1282,12 +1286,15 @@ Write fluently and naturally in {language}. NO ENGLISH TEXT IN FLAGS OR NARRATIV
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
-            raise RuntimeError(f"OpenAI API error: {str(e)}")
+            raise RuntimeError(f"Claude API error: {str(e)}")
     
     def _parse_api_response(self, response: dict) -> dict:
         """Parse API response with robust error handling"""
         try:
-            content = response["choices"][0]["message"]["content"]
+            if "content" in response and isinstance(response["content"], list):
+                content = "".join(part.get("text", "") for part in response["content"] if isinstance(part, dict))
+            else:
+                content = response["choices"][0]["message"]["content"]
             
             # CRITICAL FIX: Handle different content types from API
             if isinstance(content, list):
@@ -1745,7 +1752,11 @@ INSTRUCTIONS:
 
 Return ONLY a JSON object with exactly these keys:
 {{"narrative": {{"vehicle_overview": "", "smartbuyer_score_summary": "", "score_breakdown": "", "market_comparison": "", "gap_logic": "", "vsc_logic": "", "apr_bonus_rule": "", "lease_audit": "", "trade": "", "negotiation_insight": "", "final_recommendation": ""}}, "buyer_message": ""}}"""
-        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        headers = {
+            "x-api-key": self.api_key or "",
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
+        }
         payload = {
             "model": self.model,
             "messages": [
@@ -1799,7 +1810,11 @@ PRE-EXTRACTED DEAL DATA:
 
 Return ONLY valid JSON matching the exact output schema. No markdown, no explanation."""
 
-        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        headers = {
+            "x-api-key": self.api_key or "",
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
+        }
         payload = {
             "model": self.model,
             "messages": [
@@ -2076,6 +2091,16 @@ Return ONLY valid JSON matching the exact output schema. No markdown, no explana
     async def analyze_images(self, files: List[UploadFile] = None, language: str = "English", base64_images: List[str] = None, parsed_data: dict = None) -> 'MultiImageAnalysisResponse':
         """Main analysis entry point. Accepts files, base64_images, or pre-extracted parsed_data dict."""
         try:
+            if parsed_data is None and base64_images is None and files is not None:
+                validated_files = await self._validate_files(files)
+                try:
+                    parsed_data = await self.gemini_extractor.extract_quote_data(validated_files)
+                    if isinstance(parsed_data, dict):
+                        parsed_data["has_vision_extraction"] = True
+                except Exception as e:
+                    print(f"[contract] Gemini extraction failed, falling back to Claude vision: {str(e)}")
+                    base64_images = await self._convert_files_to_base64(validated_files)
+
             if parsed_data is not None:
                 # Always run through converter for consistent structure
                 # Handles both nested (buyer_info, vehicle_details...) and flat formats
@@ -2108,7 +2133,7 @@ Return ONLY valid JSON matching the exact output schema. No markdown, no explana
                 validated_files = await self._validate_files(files)
                 if not validated_files:
                     raise ValueError("No valid image files provided")
-                
+
                 base64_images = await self._convert_files_to_base64(validated_files)
                 api_response = self._call_openai_api(base64_images, language=language)
                 parsed = self._parse_api_response(api_response)
@@ -2127,6 +2152,126 @@ Return ONLY valid JSON matching the exact output schema. No markdown, no explana
                 parsed["selling_price"] = normalized_pricing.get("selling_price")
             if parsed.get("selling_price") is None and parsed.get("sale_price") is not None:
                 parsed["selling_price"] = parsed.get("sale_price")
+
+            # --- SmartBuyer scoring engine (rules-driven) ---
+            rules = load_rules()
+            upstream_flags = build_active_flags(parsed.get("flags", []), rules.flag_registry, "upstream")
+            computed_flags = compute_flags_from_parsed(parsed, rules, mode="CONTRACT")
+            all_flags = upstream_flags + computed_flags
+
+            scoring_result = score_flags(
+                all_flags,
+                rules,
+                parsed.get("audit_status", "COMPLETE")
+            )
+
+            def _to_output_flag(active_flag: "ActiveFlag") -> Flag:
+                deduction = None
+                bonus = None
+                if active_flag.points < 0:
+                    deduction = int(round(abs(active_flag.adjusted_points)))
+                elif active_flag.points > 0:
+                    bonus = int(round(abs(active_flag.points)))
+                return Flag(
+                    type=active_flag.flag_id,
+                    message=active_flag.message,
+                    item=active_flag.group,
+                    deduction=deduction,
+                    bonus=bonus
+                )
+
+            red_flags: List[Flag] = []
+            green_flags: List[Flag] = []
+            blue_flags: List[Flag] = []
+            for active_flag in scoring_result.flags:
+                if active_flag.suppressed or active_flag.group == "SYSTEM":
+                    continue
+                flag_obj = _to_output_flag(active_flag)
+                if active_flag.group == "POSITIVE":
+                    green_flags.append(flag_obj)
+                elif active_flag.group == "DEALER_CONDUCT":
+                    red_flags.append(flag_obj)
+                else:
+                    blue_flags.append(flag_obj)
+
+            red_flags = self._translate_flags(red_flags, language)
+            green_flags = self._translate_flags(green_flags, language)
+            blue_flags = self._translate_flags(blue_flags, language)
+
+            if not red_flags:
+                red_flags.append(Flag(type="General", message="No major issues identified — verify all terms and pricing before finalizing.", item="General"))
+            if not green_flags:
+                green_flags.append(Flag(type="General", message="No standout positive elements identified in this contract.", item="General"))
+            if not blue_flags:
+                blue_flags.append(Flag(type="General Advisory", message="Review all final contract terms and itemized pricing carefully before agreeing to any deal.", item="General Advisory"))
+
+            score_value = float(scoring_result.score_int)
+            trade_data = self._extract_trade_data(parsed)
+
+            if not parsed.get("_ai_narrative_done"):
+                ai_result = self._call_narrative_api(parsed, score_value, red_flags, green_flags, blue_flags, language)
+                narrative_obj = ai_result.get("narrative", {}) if isinstance(ai_result, dict) else {}
+                if not isinstance(narrative_obj, dict):
+                    narrative_obj = {}
+                _ai_buyer_msg_override = ai_result.get("buyer_message") if isinstance(ai_result, dict) else None
+            else:
+                narrative_obj = parsed.get("narrative", {}) if isinstance(parsed.get("narrative"), dict) else {}
+                _ai_buyer_msg_override = parsed.get("buyer_message")
+
+            if "trust_score_summary" in narrative_obj and "smartbuyer_score_summary" not in narrative_obj:
+                narrative_obj["smartbuyer_score_summary"] = narrative_obj.pop("trust_score_summary")
+
+            defaults = {
+                "vehicle_overview": f"Deal analysis for {parsed.get('dealer_name', 'this dealer')}.",
+                "smartbuyer_score_summary": f"SmartBuyer Score: {score_value}/100.",
+                "score_breakdown": f"Final Score: {score_value}",
+                "market_comparison": "Market comparison pending.",
+                "gap_logic": "GAP analysis pending.",
+                "vsc_logic": "VSC analysis pending.",
+                "apr_bonus_rule": "APR analysis pending.",
+                "lease_audit": "N/A - Purchase Agreement",
+                "trade": trade_data.status if trade_data else "No trade-in on this deal.",
+                "negotiation_insight": "Review all flags before signing.",
+                "final_recommendation": "Proceed with caution based on the flags above.",
+            }
+            for k, v in defaults.items():
+                if not narrative_obj.get(k):
+                    narrative_obj[k] = v
+
+            buyer_msg = _ai_buyer_msg_override or f"Your SmartBuyer score is {score_value}/100 — review the flags above."
+            narrative = Narrative(**narrative_obj)
+
+            return MultiImageAnalysisResponse(
+                score=score_value,
+                buyer_name=parsed.get("buyer_name"),
+                dealer_name=parsed.get("dealer_name"),
+                logo_text=parsed.get("logo_text"),
+                email=parsed.get("email"),
+                phone_number=parsed.get("phone_number"),
+                address=parsed.get("address"),
+                state=parsed.get("state"),
+                region=parsed.get("region", "Outside US"),
+                badge=self._assign_badge(score_value),
+                selling_price=parsed.get("selling_price"),
+                vin_number=parsed.get("vin_number"),
+                date=parsed.get("date"),
+                buyer_message=buyer_msg,
+                red_flags=red_flags,
+                green_flags=green_flags,
+                blue_flags=blue_flags,
+                normalized_pricing=NormalizedPricing(**parsed.get("normalized_pricing", {})),
+                apr=APRData(**parsed.get("apr", {})),
+                term=TermData(**parsed.get("term", {})),
+                trade=TradeData(
+                    trade_allowance=trade_data.trade_allowance if trade_data else None,
+                    trade_payoff=trade_data.trade_payoff if trade_data else None,
+                    equity=trade_data.equity if trade_data else None,
+                    negative_equity=(-abs(trade_data.negative_equity) if (trade_data and trade_data.negative_equity is not None) else None),
+                    status=(trade_data.status if trade_data else "No trade identified")
+                ),
+                bundle_abuse=parsed.get("bundle_abuse", {"active": False, "deduction": 0}),
+                narrative=narrative
+            )
             
             # ── Deterministic Audit Pipeline (runs on ALL paths: image & JSON) ──
             raw_line_items = parsed.get("line_items", [])

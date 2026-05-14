@@ -432,6 +432,26 @@ def convert_extracted_json_to_parsed(data: dict) -> dict:
     # ─── Metadata ───
     parsed["quote_type"] = _pick_first(flat, "quote_type", "document_type") or "Audit"
 
+    # ─── Audit Status + Replay Identifiers ───
+    parsed["audit_status"] = (
+        _pick_first(flat, "audit_status", "auditStatus", "status")
+        or "COMPLETE"
+    )
+    replay_keys = [
+        "ocr_pipeline_version",
+        "rules_hash",
+        "prompt_hash",
+        "schema_version",
+        "scoring_engine_version",
+        "model_version",
+        "ocr_provider",
+    ]
+    parsed["replay_context"] = {
+        k: _pick_first(flat, k)
+        for k in replay_keys
+        if _pick_first(flat, k) is not None
+    }
+
     # ─── Flags ───
     # If the input already contains pre-computed flags (from a prior OCR/AI analysis),
     # carry them through so the scoring pipeline uses them directly.
@@ -453,6 +473,10 @@ def convert_extracted_json_to_parsed(data: dict) -> dict:
     parsed["has_precomputed_flags"] = (
         _has_real_flags(in_red) or _has_real_flags(in_green) or _has_real_flags(in_blue)
     )
+
+    # Schema D / upstream flags (flag_id-driven)
+    upstream_flags = data.get("flags") or data.get("active_flags") or data.get("audit_flags")
+    parsed["flags"] = upstream_flags if isinstance(upstream_flags, list) else []
 
     # Signal: raw OCR extraction wrapper was present — AI should always re-analyze regardless of flags
     parsed["has_vision_extraction"] = bool(

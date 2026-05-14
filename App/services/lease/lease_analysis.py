@@ -19,6 +19,12 @@ from App.services.rate_helper.gap_logic import GAPLogic, GAPRecommendation
 from App.services.rate_helper.audit_flags import AuditFlagBuilder, AuditFlag
 from App.services.rate_helper.audit_summary import AuditSummary
 from App.services.rate_helper.json_to_parsed import convert_extracted_json_to_parsed
+from App.services.rate_helper.scoring_engine import (
+    load_rules,
+    build_active_flags,
+    compute_flags_from_parsed,
+    score_flags,
+)
 
 load_dotenv()
 
@@ -32,9 +38,9 @@ class LeaseAnalyzer:
     MAX_RETRIES = 2
     
     def __init__(self):
-        self.api_key = os.getenv("OPENAI_API_KEY")
-        self.model = os.getenv("GROQ_MODEL", "gpt-4.1")
-        self.api_url = "https://api.openai.com/v1/chat/completions"
+        self.api_key = os.getenv("ANTHROPIC_API_KEY")
+        self.model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+        self.api_url = "https://api.anthropic.com/v1/messages"
         self.system_prompt = self._load_lease_system_prompt()
         self.ocr_normalizer = OCRNormalizer()
         self.discount_detector = DiscountDetector()
@@ -833,15 +839,10 @@ Analyze the lease document image and return **valid JSON only** following this c
         """Build translation messages for flags."""
         return [
             {
-                "role": "system",
-                "content": (
-                    "You are a professional translator. Translate the flag fields to the target language. "
-                    "Return JSON only with key 'flags'. Preserve structure and order."
-                )
-            },
-            {
                 "role": "user",
                 "content": (
+                    "SYSTEM OVERRIDE: You are a professional translator. Translate the flag fields to the target language. "
+                    "Return JSON only with key 'flags'. Preserve structure and order.\n\n"
                     f"Target language: {language}.\n"
                     "Translate each object's 'type', 'message', and 'item' fields. "
                     "Do NOT modify numbers or add/remove fields.\n"
@@ -951,8 +952,9 @@ Analyze the lease document image and return **valid JSON only** following this c
             max_tokens: Max tokens for the response.
         """
         headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
+            "x-api-key": self.api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
         }
         
         image_detail = "high"
@@ -964,12 +966,10 @@ Analyze the lease document image and return **valid JSON only** following this c
                 
                 payload = {
                     "model": self.model,
+                    "system": self.system_prompt,
                     "messages": messages,
                     "temperature": 0.0,
-                    "max_tokens": max_tokens,
-                    "seed": 42,
-                    "top_p": 1,
-                    "response_format": {"type": "json_object"}
+                    "max_tokens": max_tokens
                 }
                 
                 print(f"API call attempt {attempt + 1}/{self.MAX_RETRIES}...")
@@ -985,12 +985,12 @@ Analyze the lease document image and return **valid JSON only** following this c
                 
             except requests.exceptions.Timeout as e:
                 raise RuntimeError(
-                    f"OpenAI API timeout on attempt {attempt + 1}. "
+                    f"Anthropic API timeout on attempt {attempt + 1}. "
                     "Try uploading fewer or smaller images."
                 )
                     
             except requests.exceptions.RequestException as e:
-                raise RuntimeError(f"OpenAI API error: {str(e)}")
+                raise RuntimeError(f"Anthropic API error: {str(e)}")
 
     def _get_extraction_messages(self, base64_images: List[str], language: str, image_detail: str) -> List[dict]:
         content = [
@@ -1169,101 +1169,31 @@ Return VALID JSON matching the schema EXACTLY.
             }
         ]
         
-        if base64_images:
-            for base64_image in base64_images:
-                content.append({
-                    "type": "image_url",
-                    "image_url": {
-                        "url": f"data:image/jpeg;base64,{base64_image}",
-                        "detail": image_detail
-                    }
-                })
-            
-        return [
-            {"role": "system", "content": self.system_prompt},
-            {"role": "system", "content": "OVERRIDE: Focus on Data Extraction and SCORING. Do not generate narrative fields. Use EXACT deduction/bonus values from the scoring tables."},
-            {"role": "user", "content": content}
-        ]
-
-    def _get_narrative_messages(self, base64_images: List[str], extracted_data: dict, final_score: float, all_flags: dict, language: str, image_detail: str) -> List[dict]:
-        # Remove potentially large fields that aren't needed for narrative to save context
-        clean_data = extracted_data.copy()
-        if "line_items" in clean_data:
-            # truncate line items if too many? For now keep them as they are relevant for narrative.
-            pass
-            
-        content = [
-            {
-                "type": "text",
-                "text": f"""
-{'=' * 80}
-TASK: NARRATIVE GENERATION
-{'=' * 80}
-
-Here is the FINAL ANALYSIS RESULTS from a lease agreement:
-
-FINAL SCORE: {final_score}
-
-FINAL FLAGS (after all analysis):
-{json.dumps(all_flags, indent=2)}
-
-EXTRACTED DATA:
-{json.dumps(clean_data, indent=2)}
-
-IMPORTANT: Your narrative MUST align with the FINAL SCORE and FINAL FLAGS shown above.
-- Use the exact score shown: {final_score}
-- Explain WHY each flag was raised (look at the flag messages)
-- Don't contradict the flags (e.g., if there's a red flag for bundling, explain it)
-- Reference the actual deductions and bonuses in your score_breakdown
-
-Based on the lease documents, final score, and flags above, generate the 'narrative' object and 'buyer_message'.
-LANGUAGE REQUIREMENT: Write ALL narrative content in {language}.
-
-Translate to {language}:
-- narrative.vehicle_overview
-- narrative.smartbuyer_score_summary (MUST mention final score {final_score}. Mention every deduction and bonuses that contributed to the final score.)
-- narrative.score_breakdown (MUST explain how we got to {final_score})
-- narrative.market_comparison
-- narrative.gap_logic
-- narrative.vsc_logic
-- narrative.apr_bonus_rule
-- narrative.trade
-- narrative.negotiation_insight
-- narrative.final_recommendation
-- buyer_message
-
-Return ONLY a JSON object with 'narrative' and 'buyer_message' keys.
-Example:
-{{
-  "narrative": {{ ... }},
-  "buyer_message": "..."
-}}
-"""
-            }
-        ]
+        # Add override instructions to the main text prompt for Anthropic
+        content[0]["text"] = "OVERRIDE: Focus on Data Extraction and SCORING. Do not generate narrative fields. Use EXACT deduction/bonus values from the scoring tables.\n\n" + content[0]["text"]
         
         if base64_images:
             for base64_image in base64_images:
                 content.append({
-                    "type": "image_url",
-                    "image_url": {
-                        "url": f"data:image/jpeg;base64,{base64_image}",
-                        "detail": image_detail
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/jpeg",
+                        "data": base64_image
                     }
                 })
             
         return [
-            {
-                "role": "system", 
-                "content": f"You are SmartBuyer AI Lease Audit Engine. Your goal is to explain the lease analysis clearly and help the buyer negotiate. Write naturally in {language}."
-            },
             {"role": "user", "content": content}
         ]
     
     def _parse_api_response(self, response: dict) -> dict:
         """Parse API response with fallback repair logic"""
         try:
-            content = response["choices"][0]["message"]["content"]
+            if isinstance(response.get("content"), list):
+                content = response["content"][0]["text"]
+            else:
+                content = response.get("content", "")
 
             # Remove markdown fences if present
             if "```" in content:
@@ -1329,17 +1259,19 @@ Each green flag MUST have a positive "bonus" field.
 Blue flags are advisory only (no deduction/bonus).
 MANDATORY: red_flags, green_flags, blue_flags MUST each have at least one item."""
 
-        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        headers = {
+            "x-api-key": self.api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
+        }
         payload = {
             "model": self.model,
+            "system": self.system_prompt,
             "messages": [
-                {"role": "system", "content": self.system_prompt},
                 {"role": "user", "content": user_text}
             ],
             "temperature": 0.0,
-            "max_tokens": 4096,
-            "seed": 42,
-            "response_format": {"type": "json_object"}
+            "max_tokens": 4096
         }
         last_error = None
         for attempt in range(self.MAX_RETRIES):
@@ -1388,16 +1320,19 @@ INSTRUCTIONS:
 Return ONLY a JSON object:
 {{"narrative": {{"vehicle_overview": "", "smartbuyer_score_summary": "", "market_comparison": "", "gap_logic": "", "vsc_logic": "", "apr_bonus_rule": "", "lease_audit": "", "trade": "", "negotiation_insight": "", "final_recommendation": ""}}, "buyer_message": ""}}"""
 
-        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        headers = {
+            "x-api-key": self.api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
+        }
         payload = {
             "model": self.model,
+            "system": "You are a SmartBuyer automotive lease expert. Always write in the specified language. Return only valid JSON.",
             "messages": [
-                {"role": "system", "content": "You are a SmartBuyer automotive lease expert. Always write in the specified language. Return only valid JSON."},
                 {"role": "user", "content": prompt}
             ],
             "temperature": 0.4,
-            "max_tokens": 2000,
-            "response_format": {"type": "json_object"}
+            "max_tokens": 4096
         }
         try:
             response = requests.post(self.api_url, headers=headers, json=payload, timeout=self.API_TIMEOUT)
@@ -2098,6 +2033,131 @@ Return ONLY a JSON object:
                     ai_result["has_precomputed_flags"] = True
                     parsed = ai_result
 
+                # --- SmartBuyer scoring engine (rules-driven) ---
+                rules = load_rules()
+                upstream_flags = build_active_flags(parsed.get("flags", []), rules.flag_registry, "upstream")
+                computed_flags = compute_flags_from_parsed(parsed, rules, mode="LEASE")
+                all_flags = upstream_flags + computed_flags
+
+                scoring_result = score_flags(
+                    all_flags,
+                    rules,
+                    parsed.get("audit_status", "COMPLETE")
+                )
+
+                def _to_output_flag(active_flag: "ActiveFlag") -> Flag:
+                    deduction = None
+                    bonus = None
+                    if active_flag.points < 0:
+                        deduction = int(round(abs(active_flag.adjusted_points)))
+                    elif active_flag.points > 0:
+                        bonus = int(round(abs(active_flag.points)))
+                    return Flag(
+                        type=active_flag.flag_id,
+                        message=active_flag.message,
+                        item=active_flag.group,
+                        deduction=deduction,
+                        bonus=bonus
+                    )
+
+                red_flags: List[Flag] = []
+                green_flags: List[Flag] = []
+                blue_flags: List[Flag] = []
+                for active_flag in scoring_result.flags:
+                    if active_flag.suppressed or active_flag.group == "SYSTEM":
+                        continue
+                    flag_obj = _to_output_flag(active_flag)
+                    if active_flag.group == "POSITIVE":
+                        green_flags.append(flag_obj)
+                    elif active_flag.group == "DEALER_CONDUCT":
+                        red_flags.append(flag_obj)
+                    else:
+                        blue_flags.append(flag_obj)
+
+                red_flags = self._translate_flags(red_flags, language)
+                green_flags = self._translate_flags(green_flags, language)
+                blue_flags = self._translate_flags(blue_flags, language)
+
+                if not red_flags:
+                    red_flags.append(Flag(type="General", message="No major compliance issues identified — review all lease terms before signing.", item="General"))
+                if not green_flags:
+                    green_flags.append(Flag(type="General", message="No standout positive elements identified for this deal.", item="General"))
+                if not blue_flags:
+                    blue_flags.append(Flag(type="General Advisory", message="Review all final lease terms, product details, and payment figures carefully before signing.", item="General Advisory"))
+
+                score_value = float(scoring_result.score_int)
+                ai_narrative = self._call_narrative_api(parsed, score_value, red_flags, green_flags, blue_flags, language)
+                narrative_obj = ai_narrative.get("narrative", {}) if isinstance(ai_narrative, dict) else {}
+                if not isinstance(narrative_obj, dict):
+                    narrative_obj = {}
+                buyer_msg = ai_narrative.get("buyer_message", "") if isinstance(ai_narrative, dict) else ""
+
+                if "trust_score_summary" in narrative_obj and "smartbuyer_score_summary" not in narrative_obj:
+                    narrative_obj["smartbuyer_score_summary"] = narrative_obj.pop("trust_score_summary")
+
+                narrative_defaults = {
+                    "vehicle_overview": f"Lease analysis for {parsed.get('dealer_name', 'this dealer')}.",
+                    "smartbuyer_score_summary": f"SmartBuyer Score: {score_value}/100.",
+                    "market_comparison": "Market comparison pending.",
+                    "gap_logic": "GAP analysis pending.",
+                    "vsc_logic": "VSC analysis pending.",
+                    "apr_bonus_rule": "APR/rate analysis pending.",
+                    "lease_audit": "Lease terms analysis pending.",
+                    "trade": "No trade-in on this deal.",
+                    "negotiation_insight": "Review all flags before signing.",
+                    "final_recommendation": "Proceed with caution based on the flags above."
+                }
+                for key, default_val in narrative_defaults.items():
+                    if not narrative_obj.get(key):
+                        narrative_obj[key] = default_val
+
+                if "trade" in narrative_obj and not isinstance(narrative_obj["trade"], str):
+                    narrative_obj["trade"] = str(narrative_obj["trade"])
+
+                if not buyer_msg:
+                    buyer_msg = f"Your SmartBuyer lease score is {score_value}/100 — review the flags above."
+
+                narrative = Narrative(**narrative_obj)
+                trade_data = self._extract_trade_data(parsed)
+
+                return MultiImageAnalysisResponse(
+                    score=score_value,
+                    buyer_name=parsed.get("buyer_name"),
+                    dealer_name=parsed.get("dealer_name"),
+                    logo_text=parsed.get("logo_text") or parsed.get("dealer_name"),
+                    email=parsed.get("email"),
+                    phone_number=parsed.get("phone_number"),
+                    address=parsed.get("address"),
+                    state=parsed.get("state"),
+                    region=parsed.get("region") or "Outside US",
+                    badge=self._assign_badge(score_value),
+                    selling_price=parsed.get("cap_cost") or parsed.get("selling_price") or parsed.get("sale_price"),
+                    vin_number=parsed.get("vin_number") or parsed.get("vin"),
+                    date=parsed.get("date"),
+                    buyer_message=buyer_msg,
+                    red_flags=red_flags,
+                    green_flags=green_flags,
+                    blue_flags=blue_flags,
+                    normalized_pricing=NormalizedPricing(**parsed.get("normalized_pricing", {})) if isinstance(parsed.get("normalized_pricing"), dict) else NormalizedPricing(),
+                    apr=APRData(**parsed.get("apr", {})) if isinstance(parsed.get("apr"), dict) else APRData(),
+                    term=TermData(**parsed.get("term", {})) if isinstance(parsed.get("term"), dict) else TermData(),
+                    trade=TradeData(
+                        trade_allowance=trade_data.trade_allowance if trade_data else None,
+                        trade_payoff=trade_data.trade_payoff if trade_data else None,
+                        equity=trade_data.equity if trade_data else None,
+                        negative_equity=(-abs(trade_data.negative_equity) if (trade_data and trade_data.negative_equity is not None) else None),
+                        status=(
+                            (trade_data.status or "")
+                            .replace("Negative equity of $", "Negative equity of -$")
+                            .replace("negative equity of $", "negative equity of -$")
+                            .replace("Negative equity identified: $", "Negative equity identified: -$")
+                            .replace("negative equity identified: $", "negative equity identified: -$")
+                        ) if trade_data else "No trade identified"
+                    ),
+                    bundle_abuse=parsed.get("bundle_abuse", {"active": False, "deduction": 0}),
+                    narrative=narrative
+                )
+
                 # Parse flags (pre-existing or AI-generated)
                 def _parse_flags_json(flags_data):
                     result = []
@@ -2268,6 +2328,131 @@ Return ONLY a JSON object:
                     extraction_response = self._run_inference(extraction_factory, max_tokens=3000)
                     parsed = self._parse_api_response(extraction_response)
                     self._save_cached_extraction(cache_key, parsed)
+
+            # --- SmartBuyer scoring engine (rules-driven) ---
+            rules = load_rules()
+            upstream_flags = build_active_flags(parsed.get("flags", []), rules.flag_registry, "upstream")
+            computed_flags = compute_flags_from_parsed(parsed, rules, mode="LEASE")
+            all_flags = upstream_flags + computed_flags
+
+            scoring_result = score_flags(
+                all_flags,
+                rules,
+                parsed.get("audit_status", "COMPLETE")
+            )
+
+            def _to_output_flag(active_flag: "ActiveFlag") -> Flag:
+                deduction = None
+                bonus = None
+                if active_flag.points < 0:
+                    deduction = int(round(abs(active_flag.adjusted_points)))
+                elif active_flag.points > 0:
+                    bonus = int(round(abs(active_flag.points)))
+                return Flag(
+                    type=active_flag.flag_id,
+                    message=active_flag.message,
+                    item=active_flag.group,
+                    deduction=deduction,
+                    bonus=bonus
+                )
+
+            red_flags: List[Flag] = []
+            green_flags: List[Flag] = []
+            blue_flags: List[Flag] = []
+            for active_flag in scoring_result.flags:
+                if active_flag.suppressed or active_flag.group == "SYSTEM":
+                    continue
+                flag_obj = _to_output_flag(active_flag)
+                if active_flag.group == "POSITIVE":
+                    green_flags.append(flag_obj)
+                elif active_flag.group == "DEALER_CONDUCT":
+                    red_flags.append(flag_obj)
+                else:
+                    blue_flags.append(flag_obj)
+
+            red_flags = self._translate_flags(red_flags, language)
+            green_flags = self._translate_flags(green_flags, language)
+            blue_flags = self._translate_flags(blue_flags, language)
+
+            if not red_flags:
+                red_flags.append(Flag(type="General", message="No major compliance issues identified — review all lease terms before signing.", item="General"))
+            if not green_flags:
+                green_flags.append(Flag(type="General", message="No standout positive elements identified for this deal.", item="General"))
+            if not blue_flags:
+                blue_flags.append(Flag(type="General Advisory", message="Review all final lease terms, product details, and payment figures carefully before signing.", item="General Advisory"))
+
+            score_value = float(scoring_result.score_int)
+            ai_narrative = self._call_narrative_api(parsed, score_value, red_flags, green_flags, blue_flags, language)
+            narrative_obj = ai_narrative.get("narrative", {}) if isinstance(ai_narrative, dict) else {}
+            if not isinstance(narrative_obj, dict):
+                narrative_obj = {}
+            buyer_msg = ai_narrative.get("buyer_message", "") if isinstance(ai_narrative, dict) else ""
+
+            if "trust_score_summary" in narrative_obj and "smartbuyer_score_summary" not in narrative_obj:
+                narrative_obj["smartbuyer_score_summary"] = narrative_obj.pop("trust_score_summary")
+
+            narrative_defaults = {
+                "vehicle_overview": f"Lease analysis for {parsed.get('dealer_name', 'this dealer')}.",
+                "smartbuyer_score_summary": f"SmartBuyer Score: {score_value}/100.",
+                "market_comparison": "Market comparison pending.",
+                "gap_logic": "GAP analysis pending.",
+                "vsc_logic": "VSC analysis pending.",
+                "apr_bonus_rule": "APR/rate analysis pending.",
+                "lease_audit": "Lease terms analysis pending.",
+                "trade": "No trade-in on this deal.",
+                "negotiation_insight": "Review all flags before signing.",
+                "final_recommendation": "Proceed with caution based on the flags above."
+            }
+            for key, default_val in narrative_defaults.items():
+                if not narrative_obj.get(key):
+                    narrative_obj[key] = default_val
+
+            if "trade" in narrative_obj and not isinstance(narrative_obj["trade"], str):
+                narrative_obj["trade"] = str(narrative_obj["trade"])
+
+            if not buyer_msg:
+                buyer_msg = f"Your SmartBuyer lease score is {score_value}/100 — review the flags above."
+
+            narrative = Narrative(**narrative_obj)
+            trade_data = self._extract_trade_data(parsed)
+
+            return MultiImageAnalysisResponse(
+                score=score_value,
+                buyer_name=parsed.get("buyer_name"),
+                dealer_name=parsed.get("dealer_name"),
+                logo_text=parsed.get("logo_text") or parsed.get("dealer_name"),
+                email=parsed.get("email"),
+                phone_number=parsed.get("phone_number"),
+                address=parsed.get("address"),
+                state=parsed.get("state"),
+                region=parsed.get("region") or "Outside US",
+                badge=self._assign_badge(score_value),
+                selling_price=parsed.get("cap_cost") or parsed.get("selling_price") or parsed.get("sale_price"),
+                vin_number=parsed.get("vin_number") or parsed.get("vin"),
+                date=parsed.get("date"),
+                buyer_message=buyer_msg,
+                red_flags=red_flags,
+                green_flags=green_flags,
+                blue_flags=blue_flags,
+                normalized_pricing=NormalizedPricing(**parsed.get("normalized_pricing", {})) if isinstance(parsed.get("normalized_pricing"), dict) else NormalizedPricing(),
+                apr=APRData(**parsed.get("apr", {})) if isinstance(parsed.get("apr"), dict) else APRData(),
+                term=TermData(**parsed.get("term", {})) if isinstance(parsed.get("term"), dict) else TermData(),
+                trade=TradeData(
+                    trade_allowance=trade_data.trade_allowance if trade_data else None,
+                    trade_payoff=trade_data.trade_payoff if trade_data else None,
+                    equity=trade_data.equity if trade_data else None,
+                    negative_equity=(-abs(trade_data.negative_equity) if (trade_data and trade_data.negative_equity is not None) else None),
+                    status=(
+                        (trade_data.status or "")
+                        .replace("Negative equity of $", "Negative equity of -$")
+                        .replace("negative equity of $", "negative equity of -$")
+                        .replace("Negative equity identified: $", "Negative equity identified: -$")
+                        .replace("negative equity identified: $", "negative equity identified: -$")
+                    ) if trade_data else "No trade identified"
+                ),
+                bundle_abuse=parsed.get("bundle_abuse", {"active": False, "deduction": 0}),
+                narrative=narrative
+            )
             
             # Step 0: Normalize flag keys and remove "Unknown" values
             parsed = self._normalize_flag_fields(parsed)

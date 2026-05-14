@@ -2,7 +2,7 @@ from App.services.rate_helper.ocr_normalizer import OCRNormalizer
 from App.services.rate_helper.ocr_normalization_schema import NormalizedLineItem
 from App.services.rate_helper.discount_detector import DiscountDetector
 from App.services.rate_helper.discount_schema import DiscountLineItem, DiscountTotals
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Tuple
 import os
 import re
 import base64
@@ -20,6 +20,12 @@ from App.services.rate_helper.gap_logic import GAPLogic, GAPRecommendation
 from App.services.rate_helper.audit_flags import AuditFlagBuilder, AuditFlag
 from App.services.rate_helper.audit_summary import AuditSummary
 from App.services.rate_helper.json_to_parsed import convert_extracted_json_to_parsed
+from App.services.rate_helper.scoring_engine import (
+    load_rules,
+    build_active_flags,
+    compute_flags_from_parsed,
+    score_flags,
+)
 
 load_dotenv()
 
@@ -32,9 +38,9 @@ class MultiImageAnalyzer:
     MAX_RETRIES = 2
     
     def __init__(self):
-        self.api_key = os.getenv("OPENAI_API_KEY")
-        self.model = os.getenv("GROQ_MODEL", "gpt-4.1")
-        self.api_url = "https://api.openai.com/v1/chat/completions"
+        self.api_key = os.getenv("ANTHROPIC_API_KEY")
+        self.model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+        self.api_url = "https://api.anthropic.com/v1/messages"
         self.system_prompt = self._load_contract_system_prompt()
         self.ocr_normalizer = OCRNormalizer()
         self.discount_detector = DiscountDetector()
@@ -92,26 +98,26 @@ class MultiImageAnalyzer:
             translated_list = cached.get("flags")
         else:
             headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
+                "x-api-key": self.api_key or "",
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json"
             }
-            messages = [
-                {
-                    "role": "system",
-                    "content": "Translate the flag fields to the target language. Return JSON only with key 'flags'. Preserve structure and order."
-                },
-                {
-                    "role": "user",
-                    "content": f"Target language: {language}. Translate each object's 'type', 'message', and 'item'. Input JSON: {{\"flags\": {json.dumps(flags_payload)}}}"
-                }
-            ]
             payload = {
                 "model": self.model,
-                "messages": messages,
+                "system": "Translate the flag fields to the target language. Return JSON only with key 'flags'. Preserve structure and order.",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": f"Target language: {language}. Translate each object's 'type', 'message', and 'item'. Input JSON: {{\"flags\": {json.dumps(flags_payload)}}}"
+                            }
+                        ]
+                    }
+                ],
                 "temperature": 0.0,
-                "seed": 42,
-                "max_tokens": 1000,
-                "response_format": {"type": "json_object"}
+                "max_tokens": 1000
             }
             response = requests.post(self.api_url, headers=headers, json=payload, timeout=120)
             response.raise_for_status()
@@ -525,13 +531,14 @@ Before returning JSON:
         return normalized
     
     def _call_openai_api(self, base64_images: List[str], language: str = "English") -> dict:
-        """Call OpenAI API with contract documents (with retry logic)"""
+        """Call Claude Messages API with contract documents (with retry logic)"""
         headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
+            "x-api-key": self.api_key or "",
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
         }
-        
-        content = [
+
+        user_content = [
             {
                 "type": "text",
                 "text": f"""
@@ -571,26 +578,19 @@ Return ONLY valid JSON matching the exact schema. No markdown, no explanation.
                 """
             }
         ]
-        
-        # Optimize image quality if multiple images
-        image_detail = "high" if base64_images and len(base64_images) <= 2 else "auto"
-        
+
         if base64_images:
             for base64_image in base64_images:
-                content.append({
-                    "type": "image_url",
-                    "image_url": {
-                        "url": f"data:image/jpeg;base64,{base64_image}",
-                        "detail": image_detail  # Use auto for >2 images to reduce processing time
+                user_content.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/jpeg",
+                        "data": base64_image
                     }
                 })
-        
-        payload = {
-            "model": self.model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": f"""!!!CRITICAL - LANGUAGE REQUIREMENT - HIGHEST PRIORITY!!!
+
+        system_text = f"""!!!CRITICAL - LANGUAGE REQUIREMENT - HIGHEST PRIORITY!!!
 
 OUTPUT LANGUAGE: {language}
 
@@ -604,32 +604,30 @@ You will see system instructions with English examples like:
 YOU MUST TRANSLATE ALL OF THESE TO {language}. They are examples only.
 
 TRANSLATE EVERY PIECE OF TEXT:
-• Every flag "type" → {language}
-• Every flag "message" → {language}
-• Every narrative section → {language}
-• buyer_message → {language}
+- Every flag "type" -> {language}
+- Every flag "message" -> {language}
+- Every narrative section -> {language}
+- buyer_message -> {language}
 
 ONLY KEEP IN ENGLISH:
-• JSON structure keys
-• Numbers and amounts
-• Badge (Gold/Silver/Bronze/Red)
-• VIN, dates
+- JSON structure keys
+- Numbers and amounts
+- Badge (Gold/Silver/Bronze/Red)
+- VIN, dates
 
 The system instructions may say "REQUIRED Title:" with English text - TRANSLATE IT TO {language}.
 Write fluently and naturally in {language}. This overrides all other instructions."""
-                },
-                {
-                    "role": "system",
-                    "content": self.system_prompt
-                },
-                {"role": "user", "content": content}
+
+        payload = {
+            "model": self.model,
+            "system": system_text,
+            "messages": [
+                {"role": "user", "content": user_content}
             ],
-            "temperature": 0.9,
-            "max_tokens": 3000,
-            "response_format": {"type": "json_object"}
+            "temperature": 0.0,
+            "max_tokens": 3000
         }
-        
-        # Retry logic for timeout errors
+
         last_error = None
         for attempt in range(self.MAX_RETRIES):
             try:
@@ -638,53 +636,725 @@ Write fluently and naturally in {language}. This overrides all other instruction
                     self.api_url,
                     headers=headers,
                     json=payload,
-                    timeout=self.API_TIMEOUT  # Increased timeout
+                    timeout=self.API_TIMEOUT
                 )
                 response.raise_for_status()
                 print(f"API call successful on attempt {attempt + 1}")
                 return response.json()
-                
             except requests.exceptions.Timeout as e:
                 last_error = e
                 print(f"Timeout on attempt {attempt + 1}: {str(e)}")
                 if attempt < self.MAX_RETRIES - 1:
-                    # Reduce image quality for retry
-                    if image_detail == "high":
-                        image_detail = "auto"
-                        print("Retrying with reduced image quality...")
-                        # Update payload with lower quality
-                        for item in content:
-                            if item.get("type") == "image_url":
-                                item["image_url"]["detail"] = "auto"
-                        payload["messages"][0]["content"] = content
                     continue
-                else:
-                    raise RuntimeError(
-                        f"OpenAI API timeout after {self.MAX_RETRIES} attempts. "
-                        "Try uploading fewer or smaller images."
-                    )
-                    
+                raise RuntimeError(
+                    f"Claude API timeout after {self.MAX_RETRIES} attempts. "
+                    "Try uploading fewer or smaller images."
+                )
             except requests.exceptions.RequestException as e:
-                # Non-timeout errors don't retry
-                raise RuntimeError(f"OpenAI API error: {str(e)}")
-        
-        # If we got here, all retries failed
-        raise RuntimeError(f"OpenAI API failed after {self.MAX_RETRIES} attempts: {str(last_error)}")
+                raise RuntimeError(f"Claude API error: {str(e)}")
+
+        raise RuntimeError(f"Claude API failed after {self.MAX_RETRIES} attempts: {str(last_error)}")
+
+    def _call_openai_api_chunked(self, base64_images: List[str], language: str = "English") -> dict:
+        """Call Claude Messages API in smaller batches to reduce JSON errors."""
+        headers = {
+            "x-api-key": self.api_key or "",
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
+        }
+
+        system_text = (
+            "You are a JSON extraction engine. Return ONLY valid JSON. "
+            "Do not include markdown, commentary, or extra keys."
+        )
+
+        core_prompt = f"""
+Extract the following fields from the contract images and return ONLY valid JSON with EXACTLY these keys:
+{{
+  "buyer_name": null,
+  "dealer_name": null,
+  "logo_text": null,
+  "email": null,
+  "phone_number": null,
+  "address": null,
+  "state": null,
+  "region": null,
+  "vin_number": null,
+  "date": null,
+  "selling_price": null,
+  "normalized_pricing": {{
+    "msrp": null,
+    "selling_price": null,
+    "discount": null,
+    "rebate": null,
+    "down_payment": null,
+    "trade_in_value": null,
+    "amount_financed": null,
+    "total_fees": null,
+    "total_taxes": null
+  }},
+  "apr": {{"rate": null, "estimated": false}},
+  "term": {{"months": null}},
+  "trade": {{
+    "trade_allowance": null,
+    "trade_payoff": null,
+    "equity": null,
+    "negative_equity": null,
+    "status": "No trade identified"
+  }}
+}}
+
+Rules:
+- Use null if not found.
+- Numbers must be numeric (no $ or commas).
+- selling_price must be the vehicle cash price (NOT amount financed).
+- Do NOT include flags, narrative, or line_items.
+"""
+
+        line_items_prompt = """
+Extract ALL line items from the contract images and return ONLY valid JSON:
+{ "line_items": [ {"description": "", "amount": ""} ] }
+
+Rules:
+- description must be exact text from the document.
+- amount should be numeric text without $ or commas.
+- If none found, return an empty array.
+"""
+
+        def _post_prompt(prompt_text: str, max_tokens: int) -> dict:
+            user_content = [{"type": "text", "text": prompt_text}]
+            for base64_image in base64_images or []:
+                user_content.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/jpeg",
+                        "data": base64_image
+                    }
+                })
+            payload = {
+                "model": self.model,
+                "system": system_text,
+                "messages": [{"role": "user", "content": user_content}],
+                "temperature": 0.0,
+                "max_tokens": max_tokens
+            }
+            response = requests.post(self.api_url, headers=headers, json=payload, timeout=self.API_TIMEOUT)
+            response.raise_for_status()
+            return response.json()
+
+        core_response = _post_prompt(core_prompt, max_tokens=1400)
+        core = self._parse_api_response_strict(core_response)
+
+        items_response = _post_prompt(line_items_prompt, max_tokens=2000)
+        items = self._parse_api_response_strict(items_response)
+
+        merged = dict(core) if isinstance(core, dict) else {}
+        if isinstance(items, dict) and isinstance(items.get("line_items"), list):
+            merged["line_items"] = items["line_items"]
+        return merged
+
+    def _parse_kv_lines(self, text: str, keys: List[str]) -> Dict[str, str]:
+        result: Dict[str, str] = {}
+        if not text:
+            return result
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            match = re.match(r"^([a-z_]+)\s*:\s*(.+)$", line)
+            if not match:
+                continue
+            key = match.group(1).strip()
+            value = match.group(2).strip()
+            if key in keys and value:
+                result[key] = value
+        return result
+
+    def _call_narrative_sections_kv(
+        self,
+        parsed: dict,
+        score: float,
+        red_flags: List[Flag],
+        green_flags: List[Flag],
+        blue_flags: List[Flag],
+        trade_data: Optional[TradeData],
+        language: str
+    ) -> Dict[str, str]:
+        headers = {
+            "x-api-key": self.api_key or "",
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
+        }
+
+        pricing = parsed.get("normalized_pricing", {}) if isinstance(parsed.get("normalized_pricing"), dict) else {}
+        apr_data = parsed.get("apr", {}) if isinstance(parsed.get("apr"), dict) else {}
+        term_data = parsed.get("term", {}) if isinstance(parsed.get("term"), dict) else {}
+
+        line_items = parsed.get("line_items", []) if isinstance(parsed.get("line_items"), list) else []
+        line_items_summary = []
+        for item in line_items[:10]:
+            if not isinstance(item, dict):
+                continue
+            desc = item.get("description") or item.get("item") or item.get("name") or ""
+            amount = item.get("amount")
+            if desc:
+                if amount is None or amount == "":
+                    line_items_summary.append(desc)
+                else:
+                    line_items_summary.append(f"{desc} ({amount})")
+
+        flags_payload = {
+            "red_flags": [{"type": f.type, "message": f.message, "item": f.item, "deduction": f.deduction} for f in red_flags],
+            "green_flags": [{"type": f.type, "message": f.message, "item": f.item, "bonus": f.bonus} for f in green_flags],
+            "blue_flags": [{"type": f.type, "message": f.message, "item": f.item} for f in blue_flags],
+        }
+
+        context = {
+            "score": score,
+            "dealer_name": parsed.get("dealer_name"),
+            "vin_number": parsed.get("vin_number"),
+            "pricing": {
+                "selling_price": parsed.get("selling_price") or pricing.get("selling_price"),
+                "msrp": pricing.get("msrp"),
+                "amount_financed": pricing.get("amount_financed"),
+                "total_fees": pricing.get("total_fees"),
+                "total_taxes": pricing.get("total_taxes"),
+                "down_payment": pricing.get("down_payment"),
+                "trade_in_value": pricing.get("trade_in_value"),
+            },
+            "apr": apr_data.get("rate") or apr_data.get("listed"),
+            "term_months": term_data.get("months"),
+            "trade": trade_data.status if trade_data else "No trade identified",
+            "line_items": line_items_summary,
+            "flags": flags_payload,
+        }
+
+        def _post_lines(prompt_text: str, keys: List[str], max_tokens: int) -> Dict[str, str]:
+            payload = {
+                "model": self.model,
+                "system": "Return only the requested key: value lines. No extra text.",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt_text}
+                        ]
+                    }
+                ],
+                "temperature": 0.2,
+                "max_tokens": max_tokens
+            }
+            response = requests.post(self.api_url, headers=headers, json=payload, timeout=self.API_TIMEOUT)
+            response.raise_for_status()
+            response_json = response.json()
+            if "content" in response_json and isinstance(response_json["content"], list):
+                text = "".join(part.get("text", "") for part in response_json["content"] if isinstance(part, dict))
+            else:
+                text = response_json.get("choices", [{}])[0].get("message", {}).get("content", "")
+            if not isinstance(text, str):
+                text = str(text)
+            return self._parse_kv_lines(text, keys)
+
+        summary_keys = [
+            "vehicle_overview",
+            "smartbuyer_score_summary",
+            "score_breakdown",
+            "buyer_message",
+        ]
+        insights_keys = [
+            "market_comparison",
+            "gap_logic",
+            "vsc_logic",
+            "apr_bonus_rule",
+            "lease_audit",
+            "trade",
+            "negotiation_insight",
+            "final_recommendation",
+        ]
+
+        summary_prompt = (
+            f"Write in {language}. Using the context below, return ONLY these keys, "
+            "one per line in the format key: value.\n"
+            f"Keys: {', '.join(summary_keys)}\n\n"
+            f"Context:\n{json.dumps(context, indent=2)}"
+        )
+
+        insights_prompt = (
+            f"Write in {language}. Using the context below, return ONLY these keys, "
+            "one per line in the format key: value.\n"
+            f"Keys: {', '.join(insights_keys)}\n\n"
+            f"Context:\n{json.dumps(context, indent=2)}"
+        )
+
+        result: Dict[str, str] = {}
+        try:
+            result.update(_post_lines(summary_prompt, summary_keys, max_tokens=900))
+            result.update(_post_lines(insights_prompt, insights_keys, max_tokens=1200))
+        except Exception as e:
+            print(f"[DEBUG] Narrative batch call failed: {str(e)}")
+        return result
+
+    def _build_narrative_from_parsed(
+        self,
+        parsed: dict,
+        score: float,
+        red_flags: List[Flag],
+        green_flags: List[Flag],
+        blue_flags: List[Flag],
+        trade_data: Optional[TradeData]
+    ) -> Dict[str, str]:
+        pricing = parsed.get("normalized_pricing", {}) if isinstance(parsed.get("normalized_pricing"), dict) else {}
+        apr_data = parsed.get("apr", {}) if isinstance(parsed.get("apr"), dict) else {}
+        term_data = parsed.get("term", {}) if isinstance(parsed.get("term"), dict) else {}
+
+        def _coerce_float(value) -> Optional[float]:
+            try:
+                if value is None or value == "":
+                    return None
+                return float(str(value).replace(",", "").replace("$", ""))
+            except (ValueError, TypeError):
+                return None
+
+        def _money(value) -> Optional[str]:
+            num = _coerce_float(value)
+            if num is None:
+                return None
+            return f"${num:,.2f}"
+
+        selling_price = parsed.get("selling_price") or pricing.get("selling_price")
+        msrp = pricing.get("msrp")
+        amount_financed = pricing.get("amount_financed")
+        apr_rate = apr_data.get("rate") or apr_data.get("listed")
+        term_months = term_data.get("months")
+
+        line_items = parsed.get("line_items", []) if isinstance(parsed.get("line_items"), list) else []
+        item_texts = []
+        for item in line_items[:8]:
+            if not isinstance(item, dict):
+                continue
+            desc = item.get("description") or item.get("item") or item.get("name") or ""
+            amount = item.get("amount")
+            if desc:
+                if amount is None or amount == "":
+                    item_texts.append(desc)
+                else:
+                    item_texts.append(f"{desc} ({amount})")
+
+        def _has_keyword(words: List[str]) -> bool:
+            for item in line_items:
+                if not isinstance(item, dict):
+                    continue
+                desc = str(item.get("description") or item.get("item") or item.get("name") or "").lower()
+                for w in words:
+                    if w in desc:
+                        return True
+            return False
+
+        doc_fee = None
+        for item in line_items:
+            if not isinstance(item, dict):
+                continue
+            desc = str(item.get("description") or item.get("item") or item.get("name") or "").lower()
+            if "doc fee" in desc or "documentation" in desc or "documentary" in desc:
+                doc_fee = _money(item.get("amount"))
+                if doc_fee:
+                    break
+
+        red_count = sum(1 for f in red_flags if f.deduction is not None)
+        green_count = sum(1 for f in green_flags if f.bonus is not None)
+
+        score_lines = ["Start at 100."]
+        for f in red_flags:
+            if f.deduction is not None:
+                score_lines.append(f"-{f.deduction} {f.item}: {f.message}")
+        for f in green_flags:
+            if f.bonus is not None:
+                score_lines.append(f"+{f.bonus} {f.item}: {f.message}")
+        score_lines.append(f"Final Score: {score:.1f}")
+
+        vehicle_overview = f"Deal analysis for {parsed.get('dealer_name', 'this dealer')}."
+        if parsed.get("vin_number"):
+            vehicle_overview += f" VIN: {parsed.get('vin_number')}."
+        if selling_price is not None:
+            vehicle_overview += f" Selling price: {_money(selling_price) or selling_price}."
+
+        smartbuyer_score_summary = f"SmartBuyer Score: {score:.1f}/100."
+        smartbuyer_score_summary += f" Red flags: {red_count}, green flags: {green_count}."
+
+        score_breakdown = "\n".join(score_lines)
+
+        if msrp is not None and selling_price is not None:
+            msrp_f = _coerce_float(msrp)
+            sp_f = _coerce_float(selling_price)
+            if msrp_f and sp_f:
+                diff_pct = ((sp_f - msrp_f) / msrp_f) * 100
+                market_comparison = (
+                    f"Selling price {_money(sp_f)} vs MSRP {_money(msrp_f)} "
+                    f"({diff_pct:+.1f}% vs MSRP)."
+                )
+            else:
+                market_comparison = "MSRP comparison available but could not be normalized."
+        elif selling_price is not None:
+            market_comparison = "MSRP not found; market comparison is limited."
+        else:
+            market_comparison = "Pricing fields not found; market comparison is limited."
+
+        gap_logic = "GAP coverage not found in line items." if not _has_keyword(["gap"]) else "GAP coverage appears in the line items."
+        vsc_logic = (
+            "VSC or service contract not found in line items."
+            if not _has_keyword(["vsc", "service contract", "warranty", "extended"]) else
+            "VSC or warranty appears in the line items."
+        )
+        if doc_fee:
+            vsc_logic += f" Doc fee noted at {doc_fee}."
+
+        if apr_rate is not None:
+            apr_bonus_rule = f"APR listed at {apr_rate}%."
+        else:
+            apr_bonus_rule = "APR not found in the document."
+
+        lease_audit = "N/A - Purchase Agreement"
+        if str(parsed.get("quote_type", "")).lower().find("lease") >= 0:
+            lease_audit = "Lease detected; review money factor, residual, and cap cost."
+
+        trade_text = trade_data.status if trade_data else "No trade identified"
+
+        negotiation_insight = "Review itemized add-ons and fees."
+        if item_texts:
+            negotiation_insight = "Review these line items: " + "; ".join(item_texts[:5]) + "."
+
+        if score >= 90:
+            final_recommendation = "Strong score. Verify itemized fees and add-ons before signing."
+        elif score >= 80:
+            final_recommendation = "Good overall. Negotiate flagged items and verify fees."
+        elif score >= 70:
+            final_recommendation = "Mixed deal. Focus on lowering add-ons and fees."
+        else:
+            final_recommendation = "High risk. Proceed cautiously and verify all charges."
+
+        return {
+            "vehicle_overview": vehicle_overview,
+            "smartbuyer_score_summary": smartbuyer_score_summary,
+            "score_breakdown": score_breakdown,
+            "market_comparison": market_comparison,
+            "gap_logic": gap_logic,
+            "vsc_logic": vsc_logic,
+            "apr_bonus_rule": apr_bonus_rule,
+            "lease_audit": lease_audit,
+            "trade": trade_text,
+            "negotiation_insight": negotiation_insight,
+            "final_recommendation": final_recommendation,
+        }
+
+    def _build_narrative(
+        self,
+        parsed: dict,
+        score: float,
+        red_flags: List[Flag],
+        green_flags: List[Flag],
+        blue_flags: List[Flag],
+        trade_data: Optional[TradeData],
+        language: str
+    ) -> Tuple[Dict[str, str], str]:
+        base_narrative = self._build_narrative_from_parsed(parsed, score, red_flags, green_flags, blue_flags, trade_data)
+        buyer_msg = f"Your SmartBuyer score is {score:.1f}/100 — review the flags above."
+
+        ai_lines = self._call_narrative_sections_kv(parsed, score, red_flags, green_flags, blue_flags, trade_data, language)
+        if ai_lines:
+            for key, value in ai_lines.items():
+                if key == "buyer_message":
+                    buyer_msg = value
+                    continue
+                if key in base_narrative and value:
+                    base_narrative[key] = value
+
+        return base_narrative, buyer_msg
     
     def _parse_api_response(self, response: dict) -> dict:
-        """Parse API response"""
+        """Parse API response with robust error handling"""
         try:
-            content = response["choices"][0]["message"]["content"]
-            json_start = content.find('{')
-            json_end = content.rfind('}') + 1
+            if "content" in response and isinstance(response["content"], list):
+                content = "".join(part.get("text", "") for part in response["content"] if isinstance(part, dict))
+            else:
+                content = response["choices"][0]["message"]["content"]
+
+            if isinstance(content, list):
+                if all(isinstance(item, str) for item in content):
+                    content = "".join(content)
+                else:
+                    content = " ".join(str(item) for item in content)
+            elif content is None:
+                raise ValueError("API returned null content")
+            elif not isinstance(content, str):
+                content = str(content)
+
+            content = content.replace("```json", "").replace("```", "").strip()
+
+            json_start = content.find("{")
+            json_end = content.rfind("}") + 1
+            if json_start >= 0 and json_end > json_start:
+                json_str = content[json_start:json_end]
+                raw_json_str = json_str
+                try:
+                    return json.loads(json_str)
+                except json.JSONDecodeError as je:
+                    print(f"[DEBUG] Initial JSON parse failed: {str(je)}")
+                    if je.pos and je.pos > 0:
+                        start = max(0, je.pos - 100)
+                        end = min(len(json_str), je.pos + 100)
+                        print(f"[DEBUG] Error context: ...{json_str[start:end]}...")
+
+                    json_str = self._attempt_json_repair(json_str)
+                    try:
+                        return json.loads(json_str)
+                    except json.JSONDecodeError as je2:
+                        print(f"[DEBUG] Repair failed: {str(je2)}")
+                        if je2.pos and je2.pos > 0:
+                            start = max(0, je2.pos - 100)
+                            end = min(len(json_str), je2.pos + 100)
+                            print(f"[DEBUG] Error context after repair: ...{json_str[start:end]}...")
+
+                        json_str = self._advanced_json_repair(json_str)
+                        try:
+                            return json.loads(json_str)
+                        except json.JSONDecodeError as je3:
+                            print(f"[DEBUG] Advanced repair failed: {str(je3)}")
+                            repaired = self._repair_json_with_model(raw_json_str)
+                            if repaired is not None:
+                                return repaired
+                            try:
+                                with open("/tmp/failed_json_response_rating.txt", "w", encoding="utf-8") as f:
+                                    f.write(json_str)
+                                print("[DEBUG] Full JSON saved to /tmp/failed_json_response_rating.txt")
+                            except Exception:
+                                pass
+                            raise RuntimeError(f"Failed to parse JSON even after repair: {str(je3)}")
+
+            raise ValueError("No JSON found in response")
+        except (KeyError, IndexError) as e:
+            raise RuntimeError(f"Failed to parse API response structure: {str(e)}")
+        except Exception as e:
+            raise RuntimeError(f"Unexpected error parsing API response: {str(e)}")
+
+    def _parse_api_response_strict(self, response: dict) -> dict:
+        """Parse API response without repair fallbacks"""
+        try:
+            if "content" in response and isinstance(response["content"], list):
+                content = "".join(part.get("text", "") for part in response["content"] if isinstance(part, dict))
+            else:
+                content = response["choices"][0]["message"]["content"]
+
+            if isinstance(content, list):
+                content = "".join(str(item) for item in content)
+            elif content is None:
+                raise ValueError("API returned null content")
+            elif not isinstance(content, str):
+                content = str(content)
+
+            content = content.replace("```json", "").replace("```", "").strip()
+            json_start = content.find("{")
+            json_end = content.rfind("}") + 1
             if json_start >= 0 and json_end > json_start:
                 return json.loads(content[json_start:json_end])
             raise ValueError("No JSON found in response")
         except (KeyError, IndexError, json.JSONDecodeError) as e:
             raise RuntimeError(f"Failed to parse API response: {str(e)}")
+
+    def _attempt_json_repair(self, json_str: str) -> str:
+        """Attempt to repair common JSON syntax errors produced by LLMs"""
+        try:
+            if isinstance(json_str, list):
+                json_str = "".join(json_str) if json_str else ""
+            elif not isinstance(json_str, str):
+                json_str = str(json_str)
+
+            json_str = re.sub(r":\s*True\b", ": true", json_str)
+            json_str = re.sub(r":\s*False\b", ": false", json_str)
+            json_str = re.sub(r":\s*None\b", ": null", json_str)
+
+            json_str = re.sub(r"//.*", "", json_str)
+            json_str = re.sub(r",\s*([\]}])", r"\1", json_str)
+
+            json_str = re.sub(r"}\s+\{", "}, {", json_str)
+            json_str = re.sub(r"]\s+\[", "], [", json_str)
+            json_str = re.sub(r"]\s+\{", "], {", json_str)
+            json_str = re.sub(r"}\s+\[", "}, [", json_str)
+
+            for _ in range(5):
+                json_str = re.sub(r'"(\s+)("[\w\-_]+"\s*:)', r'",\1\2', json_str)
+                json_str = re.sub(r"([0-9.eE+-]+)(\s+)(\"[\w\-_]+\"\s*:)", r"\1,\2\3", json_str)
+                json_str = re.sub(r"\b(true|false|null)(\s+)(\"[\w\-_]+\"\s*:)", r"\1,\2\3", json_str)
+                json_str = re.sub(r"}(\s+)(\"[\w\-_]+\"\s*:)", r"},\1\2", json_str)
+                json_str = re.sub(r"](\s+)(\"[\w\-_]+\"\s*:)", r"],\1\2", json_str)
+                json_str = re.sub(r'"(\s+)"(?=[^:]*[,\]])', r'",\1"', json_str)
+                json_str = re.sub(r"(\{[^{}]*\})(\s+)(\{)", r"\1,\2\3", json_str)
+
+            json_str = re.sub(r'"(\s*\n\s*)("[\w\-_]+"\s*:)', r'",\1\2', json_str)
+            json_str = re.sub(r"([0-9.eE+-]+)(\s*\n\s*)(\"[\w\-_]+\"\s*:)", r"\1,\2\3", json_str)
+            json_str = re.sub(r"\b(true|false|null)(\s*\n\s*)(\"[\w\-_]+\"\s*:)", r"\1,\2\3", json_str)
+            json_str = re.sub(r"}(\s*\n\s*)(\"[\w\-_]+\"\s*:)", r"},\1\2", json_str)
+            json_str = re.sub(r"](\s*\n\s*)(\"[\w\-_]+\"\s*:)", r"],\1\2", json_str)
+
+            json_str = re.sub(r'](\s+)"(?=[^:]*:)', r'],\1"', json_str)
+            json_str = re.sub(r'}(\s+)"(?=[^:]*:)', r'},\1"', json_str)
+
+            quote_count = json_str.count('"')
+            if quote_count % 2 != 0:
+                last_quote_idx = json_str.rfind('"')
+                if last_quote_idx > 0 and last_quote_idx < len(json_str) - 1:
+                    next_char = json_str[last_quote_idx + 1:].lstrip()
+                    if next_char and next_char[0] not in [",", "}", "]"]:
+                        for i, char in enumerate(next_char):
+                            if char in [",", "}", "]", "\n"]:
+                                insert_pos = last_quote_idx + 1 + len(json_str[last_quote_idx + 1:]) - len(next_char) + i
+                                json_str = json_str[:insert_pos] + '"' + json_str[insert_pos:]
+                                break
+
+            return json_str
+        except Exception as e:
+            print(f"[DEBUG] JSON repair exception: {str(e)}")
+            return json_str
+
+    def _advanced_json_repair(self, json_str: str) -> str:
+        """Advanced JSON repair using character-by-character analysis"""
+        try:
+            result = []
+            in_string = False
+            escape_next = False
+            last_significant_char = None
+            i = 0
+
+            while i < len(json_str):
+                char = json_str[i]
+
+                if escape_next:
+                    result.append(char)
+                    escape_next = False
+                    i += 1
+                    continue
+
+                if char == "\\" and in_string:
+                    escape_next = True
+                    result.append(char)
+                    i += 1
+                    continue
+
+                if char == '"':
+                    in_string = not in_string
+                    result.append(char)
+                    if not in_string:
+                        last_significant_char = '"'
+                    i += 1
+                    continue
+
+                if char in " \t\n\r":
+                    result.append(char)
+                    i += 1
+                    continue
+
+                if in_string:
+                    result.append(char)
+                    i += 1
+                    continue
+
+                if char in "{[":
+                    result.append(char)
+                    last_significant_char = char
+                    i += 1
+                    continue
+
+                if char in "]}":
+                    result.append(char)
+                    last_significant_char = char
+                    i += 1
+                    continue
+
+                if char == ":":
+                    result.append(char)
+                    last_significant_char = char
+                    i += 1
+                    continue
+
+                if char == ",":
+                    result.append(char)
+                    last_significant_char = char
+                    i += 1
+                    continue
+
+                if last_significant_char and last_significant_char not in [",", "{", "[", ":"]:
+                    if last_significant_char in ['"', "}", "]"] or (isinstance(last_significant_char, str) and last_significant_char.isdigit()):
+                        look_ahead = json_str[i:i + 50].lstrip()
+                        if look_ahead.startswith('"'):
+                            if ':' in look_ahead[:look_ahead.find('"', 1) + 10] if '"' in look_ahead[1:] else False:
+                                result.append(',')
+
+                result.append(char)
+
+                if char.isdigit() or char in "truefalsnl":
+                    value_start = i
+                    while i < len(json_str) and json_str[i] not in " \t\n\r,}]":
+                        i += 1
+                    value = json_str[value_start:i]
+                    result.append(value[1:])
+                    last_significant_char = value[-1]
+                    continue
+
+                last_significant_char = char
+                i += 1
+
+            return "".join(result)
+        except Exception as e:
+            print(f"[DEBUG] Advanced JSON repair failed: {str(e)}")
+            return json_str
+
+    def _repair_json_with_model(self, json_str: str) -> Optional[dict]:
+        """Ask the model to repair invalid JSON and return a parsed dict."""
+        if not self.api_key:
+            return None
+        try:
+            headers = {
+                "x-api-key": self.api_key or "",
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json"
+            }
+            payload = {
+                "model": self.model,
+                "system": "You are a JSON repair tool. Return ONLY valid JSON. Do not add or remove keys. Do not change values except to fix syntax.",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": f"Repair this JSON and return only valid JSON:\n{json_str}"
+                            }
+                        ]
+                    }
+                ],
+                "temperature": 0.0,
+                "max_tokens": 2000
+            }
+            response = requests.post(self.api_url, headers=headers, json=payload, timeout=self.API_TIMEOUT)
+            response.raise_for_status()
+            response_json = response.json()
+            if "content" in response_json and isinstance(response_json["content"], list):
+                repaired_text = "".join(part.get("text", "") for part in response_json["content"] if isinstance(part, dict))
+            else:
+                repaired_text = response_json.get("choices", [{}])[0].get("message", {}).get("content", "")
+            if not isinstance(repaired_text, str):
+                repaired_text = str(repaired_text)
+            repaired_text = repaired_text.replace("```json", "").replace("```", "").strip()
+            json_start = repaired_text.find("{")
+            json_end = repaired_text.rfind("}") + 1
+            if json_start >= 0 and json_end > json_start:
+                return json.loads(repaired_text[json_start:json_end])
+        except Exception as e:
+            print(f"[DEBUG] Model JSON repair failed: {str(e)}")
+        return None
     
     def _call_narrative_api(self, parsed: dict, score: float, red_flags: list, green_flags: list, blue_flags: list, language: str) -> dict:
-        """Call OpenAI to generate narrative sections from the full parsed data and final flags."""
+        """Call Claude to generate narrative sections from the full parsed data and final flags."""
         flags_payload = {
             "red_flags": [{"type": f.type, "message": f.message, "item": f.item, "deduction": f.deduction} for f in red_flags],
             "green_flags": [{"type": f.type, "message": f.message, "item": f.item, "bonus": f.bonus} for f in green_flags],
@@ -722,16 +1392,24 @@ INSTRUCTIONS:
 
 Return ONLY a JSON object with exactly these keys:
 {{"narrative": {{"vehicle_overview": "", "smartbuyer_score_summary": "", "score_breakdown": "", "market_comparison": "", "gap_logic": "", "vsc_logic": "", "apr_bonus_rule": "", "lease_audit": "", "trade": "", "negotiation_insight": "", "final_recommendation": ""}}, "buyer_message": ""}}"""
-        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        headers = {
+            "x-api-key": self.api_key or "",
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
+        }
         payload = {
             "model": self.model,
+            "system": "You are a SmartBuyer automotive finance expert. Always write in the specified language. Return only valid JSON.",
             "messages": [
-                {"role": "system", "content": "You are a SmartBuyer automotive finance expert. Always write in the specified language. Return only valid JSON."},
-                {"role": "user", "content": prompt}
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt}
+                    ]
+                }
             ],
             "temperature": 0.4,
-            "max_tokens": 2000,
-            "response_format": {"type": "json_object"}
+            "max_tokens": 2000
         }
         try:
             response = requests.post(self.api_url, headers=headers, json=payload, timeout=self.API_TIMEOUT)
@@ -754,9 +1432,9 @@ Return ONLY a JSON object with exactly these keys:
             return "Red"
 
     def _call_json_analysis_api(self, raw_data: dict, language: str = "English") -> dict:
-        """Call OpenAI with the full system prompt + original raw deal data.
+        """Call Claude with the full system prompt + original raw deal data.
         Uses proper system/user message split identical to _call_openai_api.
-        Returns the raw OpenAI response dict.
+        Returns the raw Claude response dict.
         """
         # Strip only internal pipeline keys; keep all original deal fields intact
         skip_keys = {"has_precomputed_flags", "has_vision_extraction", "_ai_score", "_ai_narrative_done"}
@@ -776,17 +1454,24 @@ PRE-EXTRACTED DEAL DATA:
 
 Return ONLY valid JSON matching the exact output schema. No markdown, no explanation."""
 
-        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        headers = {
+            "x-api-key": self.api_key or "",
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
+        }
         payload = {
             "model": self.model,
+            "system": self.system_prompt,
             "messages": [
-                {"role": "system", "content": self.system_prompt},
-                {"role": "user", "content": user_text}
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": user_text}
+                    ]
+                }
             ],
             "temperature": 0.0,
-            "max_tokens": 4096,
-            "seed": 42,
-            "response_format": {"type": "json_object"}
+            "max_tokens": 4096
         }
         last_error = None
         for attempt in range(self.MAX_RETRIES):
@@ -1125,13 +1810,118 @@ Return ONLY valid JSON matching the exact output schema. No markdown, no explana
                 # base64_images = await self._convert_files_to_base64(optimized_files)
                 
                 base64_images = await self._convert_files_to_base64(validated_files)
-                api_response = self._call_openai_api(base64_images, language=language)
-                parsed = self._parse_api_response(api_response)
+                api_response = self._call_openai_api_chunked(base64_images, language=language)
+                parsed = api_response
             else:
                 base64_images = [img.split(",", 1)[1] if img.startswith("data:") and "," in img else img for img in base64_images]
-                api_response = self._call_openai_api(base64_images, language=language)
-                parsed = self._parse_api_response(api_response)
+                api_response = self._call_openai_api_chunked(base64_images, language=language)
+                parsed = api_response
             
+            # --- SmartBuyer scoring engine (rules-driven) ---
+            rules = load_rules()
+            upstream_flags = build_active_flags(parsed.get("flags", []), rules.flag_registry, "upstream")
+            computed_flags = compute_flags_from_parsed(parsed, rules, mode="QUOTE")
+            all_flags = upstream_flags + computed_flags
+
+            scoring_result = score_flags(
+                all_flags,
+                rules,
+                parsed.get("audit_status", "COMPLETE")
+            )
+
+            def _to_output_flag(active_flag: "ActiveFlag") -> Flag:
+                deduction = None
+                bonus = None
+                if active_flag.points < 0:
+                    deduction = int(round(abs(active_flag.adjusted_points)))
+                elif active_flag.points > 0:
+                    bonus = int(round(abs(active_flag.points)))
+                return Flag(
+                    type=active_flag.flag_id,
+                    message=active_flag.message,
+                    item=active_flag.group,
+                    deduction=deduction,
+                    bonus=bonus
+                )
+
+            red_flags: List[Flag] = []
+            green_flags: List[Flag] = []
+            blue_flags: List[Flag] = []
+            for active_flag in scoring_result.flags:
+                if active_flag.suppressed or active_flag.group == "SYSTEM":
+                    continue
+                flag_obj = _to_output_flag(active_flag)
+                if active_flag.group == "POSITIVE":
+                    green_flags.append(flag_obj)
+                elif active_flag.group == "DEALER_CONDUCT":
+                    red_flags.append(flag_obj)
+                else:
+                    blue_flags.append(flag_obj)
+
+            red_flags = self._translate_flags(red_flags, language)
+            green_flags = self._translate_flags(green_flags, language)
+            blue_flags = self._translate_flags(blue_flags, language)
+
+            if not red_flags:
+                red_flags.append(Flag(type="General", message="No major issues identified — verify all terms and pricing before finalizing.", item="General"))
+            if not green_flags:
+                green_flags.append(Flag(type="General", message="No standout positive elements identified in this quote.", item="General"))
+            if not blue_flags:
+                blue_flags.append(Flag(type="General Advisory", message="Review all final quote terms and itemized pricing carefully before agreeing to any deal.", item="General Advisory"))
+
+            score_value = float(scoring_result.score_int)
+            trade_data = self._extract_trade_data(parsed)
+
+            if not parsed.get("_ai_narrative_done"):
+                narrative_obj, buyer_msg = self._build_narrative(
+                    parsed,
+                    score_value,
+                    red_flags,
+                    green_flags,
+                    blue_flags,
+                    trade_data,
+                    language,
+                )
+            else:
+                narrative_obj = parsed.get("narrative", {}) if isinstance(parsed.get("narrative"), dict) else {}
+                buyer_msg = parsed.get("buyer_message") or f"Your SmartBuyer score is {score_value}/100 — review the flags above."
+
+            if "trust_score_summary" in narrative_obj and "smartbuyer_score_summary" not in narrative_obj:
+                narrative_obj["smartbuyer_score_summary"] = narrative_obj.pop("trust_score_summary")
+            narrative = Narrative(**narrative_obj)
+
+            return MultiImageAnalysisResponse(
+                score=score_value,
+                buyer_name=parsed.get("buyer_name"),
+                dealer_name=parsed.get("dealer_name"),
+                logo_text=parsed.get("logo_text"),
+                email=parsed.get("email"),
+                phone_number=parsed.get("phone_number"),
+                address=parsed.get("address"),
+                state=parsed.get("state"),
+                region=parsed.get("region", "Outside US"),
+                badge=self._assign_badge(score_value),
+                selling_price=parsed.get("selling_price"),
+                vin_number=parsed.get("vin_number"),
+                date=parsed.get("date"),
+                buyer_message=buyer_msg,
+                red_flags=red_flags,
+                green_flags=green_flags,
+                blue_flags=blue_flags,
+                normalized_pricing=NormalizedPricing(**parsed.get("normalized_pricing", {})),
+                apr=APRData(**parsed.get("apr", {})),
+                term=TermData(**parsed.get("term", {})),
+                trade=TradeData(
+                    trade_allowance=trade_data.trade_allowance if trade_data else None,
+                    trade_payoff=trade_data.trade_payoff if trade_data else None,
+                    equity=trade_data.equity if trade_data else None,
+                    negative_equity=(-abs(trade_data.negative_equity) if (trade_data and trade_data.negative_equity is not None) else None),
+                    status=(trade_data.status if trade_data else "No trade identified")
+                ),
+                bundle_abuse=parsed.get("bundle_abuse", {"active": False, "deduction": 0}),
+                narrative=narrative
+            )
+
             # Step 1: OCR Normalization
             raw_line_items = parsed.get("line_items", [])
             normalized_line_items = self._normalize_line_items(raw_line_items)

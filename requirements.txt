@@ -7,7 +7,7 @@ prettytable
 python-dotenv
 httpx
 img2pdf
-openai
+anthropic
 pymupdf
 cachetools
 google-genai

@@ -14,9 +14,9 @@ class OCRExtractor:
     """Extract text and structured data from all types of automotive documents using ChatGPT Vision"""
     
     def __init__(self):
-        self.api_key = os.getenv("OPENAI_API_KEY")
-        self.model = os.getenv("OCR_MODEL", "gpt-4o")
-        self.api_url = "https://api.openai.com/v1/chat/completions"
+        self.api_key = os.getenv("ANTHROPIC_API_KEY")
+        self.model = "claude-3-5-sonnet-latest"
+        self.api_url = "https://api.anthropic.com/v1/messages"
     
     async def extract_quote_data(self, files: List[UploadFile]) -> Dict:
         """Extract all quote/contract data using ChatGPT Vision"""
@@ -28,7 +28,7 @@ class OCRExtractor:
 
         # Extract structured data using Vision API
         system_prompt = self._get_quote_extraction_prompt()
-        response = await self._call_gpt_vision(base64_images, system_prompt)
+        response = await self._call_anthropic_vision(base64_images, system_prompt)
         parsed = self._parse_response(response)
 
         # Merge raw text into parsed response
@@ -388,21 +388,23 @@ legal_clauses.returned_payment_charge: extract as number (e.g. 30), not text.
             await file.seek(0)
         return base64_images
     
-    async def _call_gpt_vision(self, base64_images: List[str], system_prompt: str) -> dict:
-        """Call ChatGPT Vision API"""
+    async def _call_anthropic_vision(self, base64_images: List[str], system_prompt: str) -> dict:
+        """Call Anthropic Vision API"""
         headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
+            "x-api-key": self.api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
         }
 
         # Build user content with all images
         content = []
         for base64_image in base64_images:
             content.append({
-                "type": "image_url",
-                "image_url": {
-                    "url": f"data:image/jpeg;base64,{base64_image}",
-                    "detail": "high"
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/jpeg",
+                    "data": base64_image
                 }
             })
         content.append({
@@ -412,19 +414,15 @@ legal_clauses.returned_payment_charge: extract as number (e.g. 30), not text.
 
         payload = {
             "model": self.model,
+            "system": system_prompt,
             "messages": [
-                {
-                    "role": "system",
-                    "content": system_prompt
-                },
                 {
                     "role": "user",
                     "content": content
                 }
             ],
             "temperature": 0,
-            "max_tokens": 16384,
-            "response_format": {"type": "json_object"}
+            "max_tokens": 4096
         }
 
         try:
@@ -437,20 +435,30 @@ legal_clauses.returned_payment_charge: extract as number (e.g. 30), not text.
             response.raise_for_status()
             raw = response.json()
             # Warn if the model hit the token limit (response is truncated)
-            finish_reason = raw.get("choices", [{}])[0].get("finish_reason", "")
-            if finish_reason == "length":
+            stop_reason = raw.get("stop_reason", "")
+            if stop_reason == "max_tokens":
                 raise RuntimeError(
                     "Extraction response was truncated (max_tokens reached). "
                     "The document may be too large. Try splitting into fewer pages per request."
                 )
             return raw
         except requests.exceptions.RequestException as e:
-            raise RuntimeError(f"OpenAI Vision API error: {str(e)}")
+            raise RuntimeError(f"Anthropic Vision API error: {str(e)}")
     
     def _parse_response(self, response: dict) -> dict:
-        """Parse ChatGPT Vision response — response_format:json_object guarantees valid JSON"""
+        """Parse Anthropic Vision response"""
         try:
-            content = response["choices"][0]["message"]["content"]
+            if isinstance(response.get("content"), list):
+                content = response["content"][0]["text"]
+            else:
+                content = response.get("content", "")
+            
+            # Remove markdown JSON fences if model adds them
+            if "```json" in content:
+                content = content.replace("```json", "").replace("```", "").strip()
+            elif "```" in content:
+                content = content.replace("```", "").strip()
+                
         except (KeyError, IndexError) as e:
             raise RuntimeError(f"Unexpected API response structure: {str(e)}")
 
