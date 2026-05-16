@@ -2,6 +2,94 @@ import base64
 import os
 import json
 import requests
+from google import genai
+from google.genai import types
+
+async def extract_logo_text_gemini(
+    file_content: bytes,
+    file_name: str,
+    content_type: str
+) -> dict:
+    """
+    Extract text from logos in a document using Gemini.
+    """
+    try:
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            return {"error": "GEMINI_API_KEY not set"}
+        
+        client = genai.Client(api_key=api_key)
+        model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+        
+        # Determine mime type
+        mime_type = content_type
+        if not mime_type or mime_type == "application/octet-stream":
+            filename = file_name.lower()
+            if filename.endswith(".pdf"):
+                mime_type = "application/pdf"
+            elif filename.endswith(".png"):
+                mime_type = "image/png"
+            elif filename.endswith((".jpg", ".jpeg")):
+                mime_type = "image/jpeg"
+            else:
+                mime_type = "image/jpeg"
+        
+        system_prompt = """Extract text from logos in this document. 
+IMPORTANT: Consider all text within a single logo/brand element as ONE logo.
+If multiple words appear together as part of the same brand/logo (like "Nissan Shottenkirk Katy"), 
+group them together as a single logo entry.
+
+Return the result as JSON with this structure:
+{
+    "logos": [
+        {
+            "logo_name": "combined brand name",
+            "extracted_text": "all text from the single logo",
+            "location": "where on the document"
+        }
+    ],
+    "total_logos_found": 1,
+    "confidence_score": 0.85
+}
+If no logos found, return empty logos array. Return ONLY valid JSON."""
+        
+        response = client.models.generate_content(
+            model=model,
+            contents=[
+                types.Part.from_bytes(data=file_content, mime_type=mime_type),
+                system_prompt
+            ],
+            config={
+                "temperature": 0.0,
+            },
+        )
+        
+        response_text = response.text
+        
+        # Extract JSON from response
+        try:
+            extracted_data = json.loads(response_text)
+        except json.JSONDecodeError:
+            # Try to extract JSON if wrapped in markdown
+            import re
+            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+            if json_match:
+                extracted_data = json.loads(json_match.group())
+            else:
+                extracted_data = {"logos": [], "total_logos_found": 0, "confidence_score": 0}
+        
+        return {
+            "logos": extracted_data.get("logos", []),
+            "total_logos_found": extracted_data.get("total_logos_found", 0),
+            "confidence_score": extracted_data.get("confidence_score", 0),
+            "raw_response": extracted_data
+        }
+        
+    except Exception as e:
+        return {
+            "error": f"Error: {str(e)}"
+        }
+
 
 async def extract_logo_text_anthropic(
     file_content: bytes,
