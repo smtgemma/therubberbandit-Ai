@@ -1,0 +1,27 @@
+{
+  "gap_dca": {
+    "msrp_threshold": 60000.0,
+    "cap_under_threshold": 1200.0,
+    "cap_over_threshold": 1500.0,
+    "percent_under_threshold": 0.03
+  },
+  "vsc": {
+    "msrp_threshold": 45000.0,
+    "new_under": { "percent": 0.15, "cap": 4000.0 },
+    "used_under": { "percent": 0.16, "cap": 6000.0 },
+    "new_over": { "percent": 0.15 },
+    "used_over": { "percent": 0.16 },
+    "high_mileage": {
+      "miles_min": 100001,
+      "percent": 0.17,
+      "override_percent": 0.18
+    }
+  },
+  "maintenance": {
+    "percent": 0.05,
+    "cap": 1500.0
+  },
+  "add_ons": {
+    "combined_cap": 1000.0
+  }
+}

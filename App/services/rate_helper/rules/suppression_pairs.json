@@ -1,0 +1,109 @@
+{
+  "pairs": [
+    {
+      "if_active": "PAYMENT_CONFLICT",
+      "suppress": ["PAYMENT_VARIANCE"],
+      "reason": "PAYMENT_CONFLICT is the stronger flag."
+    },
+    {
+      "if_active": "LEASE_PAYMENT_CONFLICT",
+      "suppress": ["LEASE_PAYMENT_VARIANCE"],
+      "reason": "Hard conflict flag supersedes soft variance flag."
+    },
+    {
+      "if_active": "HIDDEN_NEGATIVE_EQUITY",
+      "suppress": ["NEGATIVE_EQUITY_DISCLOSED"],
+      "reason": "Hidden is the more severe condition."
+    },
+    {
+      "if_active": "BUNDLE_DETECTED",
+      "suppress": [
+        "GAP_OVERPRICED",
+        "VSC_OVERPRICED",
+        "MAINTENANCE_OVERPRICED",
+        "TIRE_WHEEL_EXCESSIVE",
+        "DEBT_CANCELLATION_OVERPRICED",
+        "ADDON_OVERPRICED",
+        "MISSING_PRODUCT_PRICE"
+      ],
+      "reason": "Bundle flag already penalizes the bundled products."
+    },
+    {
+      "if_active": "DEBT_CANCELLATION_DETECTED",
+      "suppress": ["GAP_MISSING_CRITICAL", "GAP_MISSING_HIGH"],
+      "reason": "DCA satisfies GAP requirement."
+    },
+    {
+      "if_active": "GAP_CAPTIVE_INCLUDED",
+      "suppress": ["GAP_MISSING_NON_CAPTIVE", "GAP_MISSING_CRITICAL"],
+      "reason": "Captive lender includes GAP."
+    },
+    {
+      "if_active": "SUBVENTED_RATE_DETECTED",
+      "suppress": ["APR_ABOVE_BENCHMARK"],
+      "reason": "Subvented rate is intentionally low."
+    },
+    {
+      "if_active": "APR_UNCERTAIN",
+      "suppress": ["SUBVENTED_RATE_DETECTED"],
+      "reason": "Cannot confirm subvention when APR is uncertain."
+    },
+    {
+      "if_active": "MISSING_PRODUCT_PRICE",
+      "suppress": [
+        "GAP_OVERPRICED",
+        "VSC_OVERPRICED",
+        "MAINTENANCE_OVERPRICED",
+        "TIRE_WHEEL_EXCESSIVE",
+        "DEBT_CANCELLATION_OVERPRICED",
+        "ADDON_OVERPRICED"
+      ],
+      "reason": "Cannot audit price against cap when price is unknown."
+    },
+    {
+      "if_active": "DUPLICATE_SUBMISSION_DETECTED",
+      "suppress": ["trust_score_update"],
+      "reason": "Duplicate submissions excluded from Trust Score."
+    },
+    {
+      "if_active": "MSD_GUARD_ACTIVE",
+      "suppress": [
+        "LEASE_PAYMENT_CONFLICT",
+        "LEASE_PAYMENT_VARIANCE",
+        "LEASE_PAYMENT_MATH_SKIPPED"
+      ],
+      "reason": "MSDs alter lease payment structure."
+    },
+    {
+      "if_active": "ONE_PAY_LEASE_DETECTED",
+      "suppress": [
+        "LEASE_PAYMENT_CONFLICT",
+        "LEASE_PAYMENT_VARIANCE",
+        "LEASE_PAYMENT_MATH_SKIPPED"
+      ],
+      "reason": "Single payment lease has no monthly payment to check."
+    },
+    {
+      "if_active": "SIGN_AND_DRIVE_DETECTED",
+      "suppress": ["CAP_COST_INFLATION_DETECTED"],
+      "reason": "Zero cap reduction is a legitimate structure."
+    },
+    {
+      "if_active": "TRADE_PAYOFF_CONFLICT",
+      "suppress": ["NEGATIVE_EQUITY_UNKNOWN"],
+      "reason": "If trade payoff is in conflict, negative equity cannot be calculated."
+    }
+  ],
+  "backend_overload": {
+    "flag": "BACKEND_OVERLOAD_DETECTED",
+    "compare_to_sum_of": [
+      "GAP_OVERPRICED",
+      "VSC_OVERPRICED",
+      "MAINTENANCE_OVERPRICED",
+      "TIRE_WHEEL_EXCESSIVE",
+      "DEBT_CANCELLATION_OVERPRICED",
+      "ADDON_OVERPRICED"
+    ],
+    "rule": "apply_higher_absolute"
+  }
+}

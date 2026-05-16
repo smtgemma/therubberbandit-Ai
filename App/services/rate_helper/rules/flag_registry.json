@@ -1,0 +1,1061 @@
+{
+  "flags": [
+    {
+      "id": "HIDDEN_NEGATIVE_EQUITY",
+      "group": "DEALER_CONDUCT",
+      "points": -15,
+      "severity": "CRITICAL",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "The negative equity from your trade-in was not clearly disclosed in your deal. This means you may owe more than expected.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "PAYMENT_CONFLICT",
+      "group": "DEALER_CONDUCT",
+      "points": -15,
+      "severity": "HIGH",
+      "modes": ["QUOTE", "CONTRACT"],
+      "description": "The monthly payment on your contract does not match what the math produces from the stated APR, term, and amount financed. The difference exceeds the acceptable tolerance.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "LEASE_PAYMENT_CONFLICT",
+      "group": "DEALER_CONDUCT",
+      "points": -15,
+      "severity": "HIGH",
+      "modes": ["LEASE"],
+      "description": "The lease payment does not reconcile with the cap cost, residual, and money factor shown. The variance exceeds the acceptable tolerance.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "CREDIT_INSURANCE_DETECTED",
+      "group": "DEALER_CONDUCT",
+      "points": -15,
+      "severity": "HIGH",
+      "modes": ["QUOTE", "CONTRACT"],
+      "description": "Credit life or disability insurance was added to your deal. This product is frequently overpriced and rarely the best option for coverage.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "PRICE_INCREASED_FROM_QUOTE",
+      "group": "DEALER_CONDUCT",
+      "points": -12,
+      "severity": "HIGH",
+      "modes": ["CONTRACT"],
+      "description": "The vehicle selling price is higher than the price on your original quote. Review the difference before signing.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "GAP_OVERPRICED",
+      "group": "DEALER_CONDUCT",
+      "points": -10,
+      "severity": "HIGH",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "The GAP coverage on your deal is priced above the SmartBuyer standard cap for your vehicle price. Consider asking for a reduction or purchasing GAP separately.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "VSC_OVERPRICED",
+      "group": "DEALER_CONDUCT",
+      "points": -10,
+      "severity": "HIGH",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "The vehicle service contract is priced above the SmartBuyer cap for your mileage band. Ask the dealer to reduce the price or consider third-party options.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "CAPTIVE_GAP_REVIEW_REQUIRED",
+      "group": "DEALER_CONDUCT",
+      "points": -10,
+      "severity": "HIGH",
+      "modes": ["LEASE"],
+      "description": "An additional GAP charge appears on your captive lender lease. Captive lenders typically include GAP coverage. This additional charge should be reviewed carefully.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "BUNDLE_DETECTED",
+      "group": "DEALER_CONDUCT",
+      "points": -10,
+      "severity": "HIGH",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "Products were bundled without individual prices. You cannot verify what you paid for each product or compare pricing.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "MARKET_ADJUSTMENT_DETECTED",
+      "group": "DEALER_CONDUCT",
+      "points": -10,
+      "severity": "HIGH",
+      "modes": ["QUOTE", "CONTRACT"],
+      "description": "A market adjustment or ADM was added above MSRP. This is a fully discretionary dealer charge. It is negotiable.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "BACKEND_OVERLOAD_DETECTED",
+      "group": "DEALER_CONDUCT",
+      "points": -10,
+      "severity": "MEDIUM",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "The total of all backend protection products exceeds the SmartBuyer threshold. Classified as DEALER_CONDUCT: the dealer controls product selection and pricing — excessive backend loading is a conduct choice.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "APR_INCREASED_FROM_QUOTE",
+      "group": "DEALER_CONDUCT",
+      "points": -10,
+      "severity": "HIGH",
+      "modes": ["CONTRACT"],
+      "description": "The APR on your contract is higher than the APR on your original quote. This increases your total cost of financing.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "REBATE_REMOVED_FROM_QUOTE",
+      "group": "DEALER_CONDUCT",
+      "points": -10,
+      "severity": "HIGH",
+      "modes": ["CONTRACT"],
+      "description": "A rebate or incentive that appeared on your quote is absent from your contract. Confirm this was intentional.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "PRODUCTS_HIDDEN_IN_PAYMENT",
+      "group": "DEALER_CONDUCT",
+      "points": -10,
+      "severity": "HIGH",
+      "modes": ["QUOTE", "CONTRACT"],
+      "description": "Backend products do not appear as individual line items — they are only visible as a payment increase.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "DEBT_CANCELLATION_OVERPRICED",
+      "group": "DEALER_CONDUCT",
+      "points": -10,
+      "severity": "HIGH",
+      "modes": ["QUOTE", "CONTRACT"],
+      "description": "The Debt Cancellation Agreement is priced above the SmartBuyer cap. DCA pricing is evaluated against the same caps as GAP.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "CAP_COST_INFLATION_DETECTED",
+      "group": "DEALER_CONDUCT",
+      "points": -10,
+      "severity": "HIGH",
+      "modes": ["LEASE"],
+      "description": "The gross cap cost does not reconcile with the itemized components. There may be an undisclosed charge in your lease.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "PRODUCTS_ADDED_FROM_QUOTE",
+      "group": "DEALER_CONDUCT",
+      "points": -8,
+      "severity": "HIGH",
+      "modes": ["CONTRACT"],
+      "description": "Products were added to your contract that were not on your original quote. Review each addition.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "REBATE_NOT_APPLIED",
+      "group": "DEALER_CONDUCT",
+      "points": -8,
+      "severity": "HIGH",
+      "modes": ["QUOTE", "CONTRACT"],
+      "description": "A rebate or incentive is listed but has not been subtracted from your deal price.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "DEALER_FEE_AS_GOV_FEE",
+      "group": "DEALER_CONDUCT",
+      "points": -8,
+      "severity": "HIGH",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "A dealer-controlled fee appears to be mislabeled as a government fee. Government fees are not negotiable — dealer fees may be.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "LEASE_PROTECTION_BUNDLE",
+      "group": "DEALER_CONDUCT",
+      "points": -8,
+      "severity": "HIGH",
+      "modes": ["LEASE"],
+      "description": "Lease-end protection products were bundled without individual prices. You cannot verify what each product costs.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "TRADE_ALLOWANCE_MISSING",
+      "group": "DEALER_CONDUCT",
+      "points": -8,
+      "severity": "HIGH",
+      "modes": ["QUOTE", "CONTRACT"],
+      "description": "A trade-in was confirmed but no trade allowance appears in your deal. The trade value was not disclosed.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "TRADE_EQUITY_NOT_APPLIED",
+      "group": "DEALER_CONDUCT",
+      "points": -8,
+      "severity": "HIGH",
+      "modes": ["QUOTE", "CONTRACT"],
+      "description": "A trade allowance is listed but does not appear to have been applied to reduce your deal price.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "PAYMENT_CHANGED_FROM_QUOTE",
+      "group": "DEALER_CONDUCT",
+      "points": -8,
+      "severity": "HIGH",
+      "modes": ["CONTRACT"],
+      "description": "Your monthly payment is higher than it was on your original quote. Review what changed.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "TRADE_ALLOWANCE_CHANGED",
+      "group": "DEALER_CONDUCT",
+      "points": -8,
+      "severity": "HIGH",
+      "modes": ["CONTRACT"],
+      "description": "Your trade-in allowance is lower in your contract than it was on your quote. This directly increases what you owe.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "FRONTEND_OVERLOAD_DETECTED",
+      "group": "DEALER_CONDUCT",
+      "points": -6,
+      "severity": "MEDIUM",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "The total of all front-end add-on products significantly exceeds the SmartBuyer threshold as a percentage of your vehicle price.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "PRODUCT_PRICE_CHANGED",
+      "group": "DEALER_CONDUCT",
+      "points": -6,
+      "severity": "MEDIUM",
+      "modes": ["CONTRACT"],
+      "description": "A product price changed between your quote and your contract.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "OVERAGE_RATE_NOT_DISCLOSED",
+      "group": "DEALER_CONDUCT",
+      "points": -6,
+      "severity": "HIGH",
+      "modes": ["LEASE"],
+      "description": "The per-mile overage charge for exceeding your mileage allowance is not disclosed in your lease.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "DISPOSITION_FEE_NOT_DISCLOSED",
+      "group": "DEALER_CONDUCT",
+      "points": -6,
+      "severity": "HIGH",
+      "modes": ["LEASE"],
+      "description": "A disposition fee is typically charged at lease end if you return the vehicle. It is not disclosed in your lease documents.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "DOC_FEE_EXCESSIVE",
+      "group": "DEALER_CONDUCT",
+      "points": -5,
+      "severity": "MEDIUM",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "The documentary fee exceeds the cap for your state. This fee is largely dealer-controlled and may be negotiable.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "MISSING_PRODUCT_PRICE",
+      "group": "DEALER_CONDUCT",
+      "points": -5,
+      "severity": "MEDIUM",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "A product in your deal does not have an individual price. You cannot verify whether you were charged fairly.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "DUPLICATE_PRODUCT_DETECTED",
+      "group": "DEALER_CONDUCT",
+      "points": -5,
+      "severity": "MEDIUM",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "The same product type appears twice in your deal. Verify you are not paying for duplicate coverage.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "MAINTENANCE_OVERPRICED",
+      "group": "DEALER_CONDUCT",
+      "points": -5,
+      "severity": "MEDIUM",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "The maintenance plan is priced above the SmartBuyer cap. Consider whether this plan fits your driving needs.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "TIRE_WHEEL_EXCESSIVE",
+      "group": "DEALER_CONDUCT",
+      "points": -5,
+      "severity": "MEDIUM",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "The tire and wheel protection product is significantly overpriced based on the SmartBuyer cap.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "DUPLICATE_GOV_FEE",
+      "group": "DEALER_CONDUCT",
+      "points": -5,
+      "severity": "MEDIUM",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "The same government fee appears to be charged twice. Government fees should only appear once.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "ACQUISITION_FEE_EXCESSIVE",
+      "group": "DEALER_CONDUCT",
+      "points": -5,
+      "severity": "MEDIUM",
+      "modes": ["LEASE"],
+      "description": "The acquisition fee on your lease significantly exceeds the standard threshold.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "ADDON_OVERPRICED",
+      "group": "DEALER_CONDUCT",
+      "points": -4,
+      "severity": "MEDIUM",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "An add-on product is priced above the SmartBuyer individual cap for that product type.",
+      "scoring_eligible": true
+    },
+
+    {
+      "id": "GAP_MISSING_CRITICAL",
+      "group": "STRUCTURAL_RISK",
+      "points": -10,
+      "severity": "HIGH",
+      "modes": ["QUOTE", "CONTRACT"],
+      "description": "No GAP coverage is present on a deal with significant financial risk. If your vehicle is totaled, you could owe more than the insurance payout.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "ABOVE_MARKET_PRICE",
+      "group": "STRUCTURAL_RISK",
+      "points": -7,
+      "severity": "MEDIUM",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "The vehicle price is above the market range for comparable vehicles in your area based on current listings.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "GAP_MISSING_HIGH",
+      "group": "STRUCTURAL_RISK",
+      "points": -5,
+      "severity": "MEDIUM",
+      "modes": ["QUOTE", "CONTRACT"],
+      "description": "No GAP coverage on a long-term loan. If the vehicle is totaled before significant equity builds, you may owe more than the insurance payout.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "HIGH_RISK_TERM",
+      "group": "STRUCTURAL_RISK",
+      "points": -4,
+      "severity": "MEDIUM",
+      "modes": ["QUOTE", "CONTRACT"],
+      "description": "Your loan term is 84 months or longer. Extremely long terms significantly increase total interest paid and extend your financial risk period.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "HIGH_LTV_RISK",
+      "group": "STRUCTURAL_RISK",
+      "points": -4,
+      "severity": "MEDIUM",
+      "modes": ["QUOTE", "CONTRACT"],
+      "description": "The loan-to-value ratio on this deal is elevated. You are financing significantly more than the vehicle is worth.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "VSC_MISSING_HIGH",
+      "group": "STRUCTURAL_RISK",
+      "points": -4,
+      "severity": "MEDIUM",
+      "modes": ["QUOTE", "CONTRACT"],
+      "description": "No vehicle service contract on a high-mileage used vehicle with a long loan term. Repair risk is elevated.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "LOW_MILEAGE_ALLOWANCE",
+      "group": "STRUCTURAL_RISK",
+      "points": -4,
+      "severity": "MEDIUM",
+      "modes": ["LEASE"],
+      "description": "Your lease mileage allowance is below 10,000 miles per year. Exceeding it could result in significant overage charges at lease end.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "LOW_RESIDUAL_FLAG",
+      "group": "STRUCTURAL_RISK",
+      "points": -4,
+      "severity": "MEDIUM",
+      "modes": ["LEASE"],
+      "description": "The residual value on your standard lease program is below the SmartBuyer benchmark. This may affect your total lease cost.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "TERM_CHANGED_FROM_QUOTE",
+      "group": "STRUCTURAL_RISK",
+      "points": -3,
+      "severity": "MEDIUM",
+      "modes": ["CONTRACT"],
+      "description": "The loan term changed between your quote and your contract. A longer term increases total interest paid.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "NEGATIVE_EQUITY_DISCLOSED",
+      "group": "STRUCTURAL_RISK",
+      "points": -3,
+      "severity": "LOW",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "Your trade-in has negative equity that was rolled into this deal. This increases the total amount you owe.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "TRADE_PAYOFF_CONFLICT",
+      "group": "STRUCTURAL_RISK",
+      "points": -3,
+      "severity": "MEDIUM",
+      "modes": ["QUOTE", "CONTRACT"],
+      "description": "The trade payoff amount appears conflicted or unclear in your deal documents.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "DOWN_PAYMENT_CHANGED",
+      "group": "STRUCTURAL_RISK",
+      "points": -2,
+      "severity": "LOW",
+      "modes": ["CONTRACT"],
+      "description": "The down payment changed between your quote and your contract.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "EXTENDED_TERM",
+      "group": "STRUCTURAL_RISK",
+      "points": -2,
+      "severity": "LOW",
+      "modes": ["QUOTE", "CONTRACT"],
+      "description": "Your loan term is between 73 and 83 months. Longer terms mean more interest paid over the life of the loan.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "WEAR_TEAR_DUPLICATION_RISK",
+      "group": "STRUCTURAL_RISK",
+      "points": -2,
+      "severity": "LOW",
+      "modes": ["LEASE"],
+      "description": "Multiple lease-end protection products may overlap in coverage. Review each product to avoid paying for duplicate protection.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "REBATE_FINANCE_CONFLICT",
+      "group": "STRUCTURAL_RISK",
+      "points": -2,
+      "severity": "LOW",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "A finance certificate or OEM incentive may require using the captive lender. You may have forfeited a cash alternative.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "TRADE_VALUE_BELOW_MARKET",
+      "group": "STRUCTURAL_RISK",
+      "points": -2,
+      "severity": "LOW",
+      "modes": ["QUOTE", "CONTRACT"],
+      "description": "The trade-in allowance may be below market range. Consider getting an independent appraisal before signing.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "PAYMENT_VARIANCE",
+      "group": "STRUCTURAL_RISK",
+      "points": -2,
+      "severity": "LOW",
+      "modes": ["CONTRACT"],
+      "description": "The monthly payment is slightly above what the stated APR, term, and financed amount produce. The difference is within the review range.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "PAYMENT_STUFFING_RISK",
+      "group": "STRUCTURAL_RISK",
+      "points": -2,
+      "severity": "LOW",
+      "modes": ["QUOTE"],
+      "description": "The proposed payment is higher than the math produces. This may indicate undisclosed products in the payment.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "ADDON_CAP_EXCEEDED",
+      "group": "STRUCTURAL_RISK",
+      "points": -2,
+      "severity": "LOW",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "The combined total of front-end add-on products exceeds the SmartBuyer soft threshold.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "DOC_FEE_ELEVATED",
+      "group": "STRUCTURAL_RISK",
+      "points": -2,
+      "severity": "LOW",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "The documentary fee is above average but below the hard cap. It may be worth asking about.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "NEGATIVE_EQUITY_UNKNOWN",
+      "group": "STRUCTURAL_RISK",
+      "points": -1,
+      "severity": "LOW",
+      "modes": ["QUOTE", "CONTRACT"],
+      "description": "A trade payoff conflict prevents calculation of your net trade position.",
+      "scoring_eligible": true
+    },
+
+    {
+      "id": "PAYMENT_MATH_PASS",
+      "group": "POSITIVE",
+      "points": 3,
+      "severity": "BONUS",
+      "modes": ["QUOTE", "CONTRACT"],
+      "description": "The monthly payment matches the math from the stated APR, term, and amount financed.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "LEASE_PAYMENT_MATH_PASS",
+      "group": "POSITIVE",
+      "points": 3,
+      "severity": "BONUS",
+      "modes": ["LEASE"],
+      "description": "The lease payment reconciles within tolerance with the cap cost, residual, and money factor.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "GAP_CAPTIVE_INCLUDED",
+      "group": "POSITIVE",
+      "points": 3,
+      "severity": "BONUS",
+      "modes": ["LEASE"],
+      "description": "GAP coverage is included in your captive lender lease at no additional charge.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "BACKEND_WITHIN_THRESHOLD",
+      "group": "POSITIVE",
+      "points": 3,
+      "severity": "BONUS",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "The total backend protection products are within the SmartBuyer fair threshold.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "GAP_WITHIN_CAP",
+      "group": "POSITIVE",
+      "points": 2,
+      "severity": "BONUS",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "The GAP coverage is priced within the SmartBuyer fair cap.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "VSC_WITHIN_CAP",
+      "group": "POSITIVE",
+      "points": 2,
+      "severity": "BONUS",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "The vehicle service contract is priced within the SmartBuyer fair cap for your mileage band.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "MAINTENANCE_WITHIN_CAP",
+      "group": "POSITIVE",
+      "points": 1,
+      "severity": "BONUS",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "The maintenance plan is priced within the SmartBuyer fair cap.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "TIRE_WHEEL_WITHIN_CAP",
+      "group": "POSITIVE",
+      "points": 1,
+      "severity": "BONUS",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "The tire and wheel protection is priced within the SmartBuyer fair cap.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "DOC_FEE_WITHIN_CAP",
+      "group": "POSITIVE",
+      "points": 1,
+      "severity": "BONUS",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "The documentary fee is within the SmartBuyer cap for your state.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "ACQUISITION_FEE_WITHIN_THRESHOLD",
+      "group": "POSITIVE",
+      "points": 1,
+      "severity": "BONUS",
+      "modes": ["LEASE"],
+      "description": "The lease acquisition fee is within the standard threshold.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "DISPOSITION_FEE_DISCLOSED",
+      "group": "POSITIVE",
+      "points": 1,
+      "severity": "BONUS",
+      "modes": ["LEASE"],
+      "description": "The disposition fee is clearly disclosed in your lease agreement.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "STANDARD_MILEAGE_PROGRAM",
+      "group": "POSITIVE",
+      "points": 1,
+      "severity": "BONUS",
+      "modes": ["LEASE"],
+      "description": "Your lease mileage allowance is within the standard 10,000-12,000 miles per year range.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "DISPOSITION_FEE_WAIVED",
+      "group": "POSITIVE",
+      "points": 1,
+      "severity": "BONUS",
+      "modes": ["LEASE"],
+      "description": "The disposition fee was waived as part of a loyalty or pull-ahead program.",
+      "scoring_eligible": true
+    },
+    {
+      "id": "RESIDUAL_WITHIN_RANGE",
+      "group": "POSITIVE",
+      "points": 1,
+      "severity": "BONUS",
+      "modes": ["LEASE"],
+      "description": "The residual value is within the fair range for your standard lease program.",
+      "scoring_eligible": true
+    },
+
+    {
+      "id": "DOC_FEE_ADVISORY",
+      "group": "INFORMATIONAL",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "The documentary fee is noted for your review.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "MAINTENANCE_POTENTIALLY_REDUNDANT",
+      "group": "INFORMATIONAL",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "A maintenance plan on a new vehicle may overlap with factory warranty coverage. Review what the plan adds beyond your warranty.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "ACQUISITION_FEE_ELEVATED",
+      "group": "INFORMATIONAL",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["LEASE"],
+      "description": "The acquisition fee is slightly above standard but below the excessive threshold.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "DISPOSITION_FEE_ELEVATED",
+      "group": "INFORMATIONAL",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["LEASE"],
+      "description": "The disposition fee is above standard but disclosed.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "SUBVENTED_RATE_DETECTED",
+      "group": "INFORMATIONAL",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["CONTRACT"],
+      "description": "A 0% or subsidized APR is present, indicating a manufacturer-supported rate incentive.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "CASH_DEAL_DETECTED",
+      "group": "INFORMATIONAL",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["QUOTE", "CONTRACT"],
+      "description": "No lender, APR, or financed amount detected. This appears to be a cash purchase.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "DEBT_CANCELLATION_DETECTED",
+      "group": "INFORMATIONAL",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["QUOTE", "CONTRACT"],
+      "description": "A Debt Cancellation Agreement is present. DCA functions similarly to GAP but has different regulatory treatment.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "DEBT_CANCELLATION_ON_NEG_EQUITY",
+      "group": "INFORMATIONAL",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["QUOTE", "CONTRACT"],
+      "description": "A DCA is present on a deal with negative equity. DCA satisfies the GAP requirement in this case.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "GAP_MISSING_LOW_DOWN",
+      "group": "INFORMATIONAL",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["QUOTE", "CONTRACT"],
+      "description": "No GAP on a deal with a low down payment. Consider whether GAP protection is appropriate.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "VSC_MISSING_STANDARD",
+      "group": "INFORMATIONAL",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["QUOTE", "CONTRACT"],
+      "description": "No vehicle service contract on a loan with a term over 60 months. Consider whether coverage is appropriate for your situation.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "GAP_MISSING_NON_CAPTIVE",
+      "group": "INFORMATIONAL",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["LEASE"],
+      "description": "No GAP on a non-captive lender lease. Consider whether GAP protection is appropriate.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "CONDITIONAL_REBATE_NOTED",
+      "group": "INFORMATIONAL",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "A conditional rebate or incentive is present. Verify the conditions that must be met to receive it.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "TRADE_PAYOFF_NOT_DISCLOSED",
+      "group": "INFORMATIONAL",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["QUOTE", "CONTRACT"],
+      "description": "A trade payoff was expected but is not visible in your deal documents.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "HIGH_RESIDUAL_STRUCTURE",
+      "group": "INFORMATIONAL",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["LEASE"],
+      "description": "This lease uses a relatively high residual value, which lowers your monthly payment but may reduce your flexibility to purchase at lease end.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "POTENTIAL_LEASE_EQUITY",
+      "group": "INFORMATIONAL",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["LEASE"],
+      "description": "The vehicle may be worth more than the buyout price at lease end. You may have purchase equity.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "LOW_BUYOUT_VALUE_EXPECTATION",
+      "group": "INFORMATIONAL",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["LEASE"],
+      "description": "The vehicle may be worth less than the buyout price at lease end. Purchasing the vehicle may not be the best financial decision.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "EXTENDED_MILEAGE_PROGRAM",
+      "group": "INFORMATIONAL",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["LEASE"],
+      "description": "Your lease has an extended mileage allowance above 12,000 miles per year. Residual fairness is advisory only for non-standard programs.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "SIGN_AND_DRIVE_DETECTED",
+      "group": "INFORMATIONAL",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["LEASE"],
+      "description": "This appears to be a sign-and-drive lease structure with no cap cost reduction. Fees and taxes are rolled into the cap cost.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "LEASE_LOYALTY_REBATE_DETECTED",
+      "group": "INFORMATIONAL",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["LEASE"],
+      "description": "A loyalty rebate or disposition waiver was applied as a cap cost reduction.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "ONE_PAY_LEASE_DETECTED",
+      "group": "INFORMATIONAL",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["LEASE"],
+      "description": "This is a single-payment lease. All payments are made upfront, reducing the rent charge but carrying risk if the vehicle is totaled early.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "NONSTANDARD_TERM_NOTED",
+      "group": "INFORMATIONAL",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["LEASE"],
+      "description": "Your lease term is outside the standard 24-36 month range. Residual fairness analysis is advisory only for non-standard terms.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "LEASE_PAYMENT_VARIANCE",
+      "group": "INFORMATIONAL",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["LEASE"],
+      "description": "Minor lease payment variance within review range.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "GAP_PRESENT_LESSOR_UNKNOWN",
+      "group": "INFORMATIONAL",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["LEASE"],
+      "description": "GAP is charged but the lessor type cannot be confirmed. Verify with your lender whether GAP is already included.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "MILEAGE_PROGRAM_NONSTANDARD",
+      "group": "INFORMATIONAL",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["LEASE"],
+      "description": "Non-standard mileage program. Residual fairness analysis suppressed.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "RESIDUAL_BELOW_STANDARD",
+      "group": "INFORMATIONAL",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["LEASE"],
+      "description": "The residual is slightly below the SmartBuyer benchmark for a standard lease program.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "APR_ABOVE_BENCHMARK",
+      "group": "INFORMATIONAL",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["CONTRACT"],
+      "description": "The APR is in the above-benchmark band. Rate scoring is handled by the backend scoring engine.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "TAX_METHOD_NOTED",
+      "group": "INFORMATIONAL",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["LEASE"],
+      "description": "Tax method noted. No penalty applied. Tax treatment varies by state and lender.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "TIRE_WHEEL_ELEVATED",
+      "group": "INFORMATIONAL",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "The tire and wheel protection is above average but below the excessive threshold.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "EXCESS_MILEAGE",
+      "group": "INFORMATIONAL",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["LEASE"],
+      "description": "Excess mileage product detected in lease. Included in backend total.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "WEAR_TEAR",
+      "group": "INFORMATIONAL",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["LEASE"],
+      "description": "Wear and tear protection product detected. Included in backend total.",
+      "scoring_eligible": false
+    },
+
+    {
+      "id": "MSD_GUARD_ACTIVE",
+      "group": "SYSTEM",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["LEASE"],
+      "description": "Multiple Security Deposits detected. Payment math and money factor checks suppressed.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "APR_UNCERTAIN",
+      "group": "SYSTEM",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["QUOTE", "CONTRACT"],
+      "description": "APR confidence is below threshold. Payment math and rate checks suppressed.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "LEASE_PAYMENT_MATH_SKIPPED",
+      "group": "SYSTEM",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["LEASE"],
+      "description": "Lease payment math skipped due to missing required fields.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "NEW_USED_NOT_CONFIRMED",
+      "group": "SYSTEM",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["QUOTE", "CONTRACT"],
+      "description": "MSRP unavailable — sale_price used as proxy for cap calculations (GAP/VSC/Maintenance). Caps are conservative. msrp_source set to sale_price_fallback.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "LEASE_MATH_FIELD_UNCERTAIN",
+      "group": "SYSTEM",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["LEASE"],
+      "description": "Lease math fields below confidence threshold. Routed to member confirmation.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "HUMAN_REVIEW_RECOMMENDED",
+      "group": "SYSTEM",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "Audit confidence below threshold. Member routed to Edit Deal Data for field confirmation.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "DUPLICATE_SUBMISSION_DETECTED",
+      "group": "SYSTEM",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "This audit matches a prior submission. Excluded from Trust Score calculations.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "MODIFIED_SUBMISSION_DETECTED",
+      "group": "SYSTEM",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "A similar prior submission was found with different amounts. Flagged for review.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "NEW_DEALER_DETECTED",
+      "group": "SYSTEM",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "First audit for this dealer. Trust Score initialized.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "VERIFICATION_INCOMPLETE",
+      "group": "SYSTEM",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "One or more Tier 2 fields are missing. Dependent audit steps suppressed.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "LIMITED_MARKET_DATA",
+      "group": "SYSTEM",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "Fewer than 8 market comparables found. Market price position cannot be determined.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "HIGH_DEFAULT_RISK_CLUSTER",
+      "group": "SYSTEM",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "Internal lender analytics flag. Multiple compound risk factors present. Not consumer-facing.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "LEASE_HIGH_RISK_CLUSTER",
+      "group": "SYSTEM",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["LEASE"],
+      "description": "Internal lender analytics flag. Multiple compound lease risk factors present.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "UNCLASSIFIED_TERM",
+      "group": "SYSTEM",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "A line item could not be classified by the OCR keyword dictionary.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "CONFLICT_HOLD",
+      "group": "SYSTEM",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "Audit halted. A required field confidence is below threshold. Member prompted to resubmit.",
+      "scoring_eligible": false
+    },
+    {
+      "id": "NO_CAP",
+      "group": "SYSTEM",
+      "points": 0,
+      "severity": "INFO",
+      "modes": ["QUOTE", "CONTRACT", "LEASE"],
+      "description": "No statutory cap for this state. SmartBuyer benchmark applied.",
+      "scoring_eligible": false
+    }
+  ]
+}
