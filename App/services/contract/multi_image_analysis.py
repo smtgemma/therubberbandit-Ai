@@ -27,6 +27,7 @@ from App.services.rate_helper.scoring_engine import (
     build_active_flags,
     compute_flags_from_parsed,
     score_flags,
+    ActiveFlag,
 )
 
 load_dotenv()
@@ -128,23 +129,25 @@ class MultiImageAnalyzer:
             "anthropic-version": "2023-06-01",
             "content-type": "application/json"
         }
-        messages = [
-            {
-                "role": "system",
-                "content": "Translate the flag fields to the target language. Return JSON only with key 'flags'. Preserve structure and order."
-            },
-            {
-                "role": "user",
-                "content": f"Target language: {language}. Translate each object's 'type', 'message', and 'item'. Input JSON: {{\"flags\": {json.dumps(flags_payload)}}}"
-            }
-        ]
         payload = {
             "model": self.model,
-            "messages": messages,
+            "system": "Translate the flag fields to the target language. Return JSON only with key 'flags'. Preserve structure and order.",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                f"Target language: {language}. Translate each object's 'type', "
+                                f"'message', and 'item'. Input JSON: {{\"flags\": {json.dumps(flags_payload)}}}"
+                            )
+                        }
+                    ]
+                }
+            ],
             "temperature": 0.0,
-            "seed": 42,
-            "max_tokens": 1000,
-            "response_format": {"type": "json_object"}
+            "max_tokens": 1000
         }
         response = requests.post(self.api_url, headers=headers, json=payload, timeout=120)
         response.raise_for_status()
@@ -205,7 +208,12 @@ class MultiImageAnalyzer:
 
     def _parse_json_object(self, response: dict) -> dict:
         """Parse a JSON object from chat completion response without defaults."""
-        content = response["choices"][0]["message"]["content"]
+        if "content" in response and isinstance(response["content"], list):
+            content = "".join(
+                part.get("text", "") for part in response["content"] if isinstance(part, dict)
+            )
+        else:
+            content = response["choices"][0]["message"]["content"]
         if isinstance(content, list):
             if all(isinstance(item, str) for item in content):
                 content = "".join(content)
@@ -242,23 +250,22 @@ class MultiImageAnalyzer:
             "anthropic-version": "2023-06-01",
             "content-type": "application/json"
         }
-        messages = [
-            {
-                "role": "system",
-                "content": "Translate all string values in the provided JSON to the target language. Return JSON only with the same keys and structure. Do not translate numbers, dates, or JSON keys."
-            },
-            {
-                "role": "user",
-                "content": f"Target language: {language}. Input JSON: {json.dumps(payload)}"
-            }
-        ]
         payload_request = {
             "model": self.model,
-            "messages": messages,
+            "system": "Translate all string values in the provided JSON to the target language. Return JSON only with the same keys and structure. Do not translate numbers, dates, or JSON keys.",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": f"Target language: {language}. Input JSON: {json.dumps(payload)}"
+                        }
+                    ]
+                }
+            ],
             "temperature": 0.0,
-            "seed": 42,
-            "max_tokens": 2000,
-            "response_format": {"type": "json_object"}
+            "max_tokens": 2000
         }
         response = requests.post(self.api_url, headers=headers, json=payload_request, timeout=120)
         response.raise_for_status()
@@ -1294,7 +1301,12 @@ Write fluently and naturally in {language}. NO ENGLISH TEXT IN FLAGS OR NARRATIV
             if "content" in response and isinstance(response["content"], list):
                 content = "".join(part.get("text", "") for part in response["content"] if isinstance(part, dict))
             else:
-                content = response["choices"][0]["message"]["content"]
+                if "content" in response and isinstance(response["content"], list):
+                    content = "".join(
+                        part.get("text", "") for part in response["content"] if isinstance(part, dict)
+                    )
+                else:
+                    content = response["choices"][0]["message"]["content"]
             
             # CRITICAL FIX: Handle different content types from API
             if isinstance(content, list):
@@ -1352,7 +1364,7 @@ Write fluently and naturally in {language}. NO ENGLISH TEXT IN FLAGS OR NARRATIV
                             end = min(len(json_str), je2.pos + 100)
                             print(f"[DEBUG] Error context after repair: ...{json_str[start:end]}...")
                         
-                        # Try advanced repair as last resort
+                            # Try advanced repair as last resort
                         print("[DEBUG] Attempting advanced JSON repair...")
                         json_str = self._advanced_json_repair(json_str)
                         try:
@@ -1365,10 +1377,10 @@ Write fluently and naturally in {language}. NO ENGLISH TEXT IN FLAGS OR NARRATIV
                                 with open('/tmp/failed_json_response.txt', 'w') as f:
                                     f.write(json_str)
                                 print("[DEBUG] Full JSON saved to /tmp/failed_json_response.txt")
-                            except:
+                            except Exception:
                                 pass
-                            
-                            raise RuntimeError(f"Failed to parse JSON even after repair: {str(je3)}")
+
+                                raise RuntimeError(f"Failed to parse JSON even after repair: {str(je3)}")
                 
                 # Ensure critical fields exist with defaults
                 defaults = {
@@ -1713,7 +1725,7 @@ Write fluently and naturally in {language}. NO ENGLISH TEXT IN FLAGS OR NARRATIV
         except Exception as e:
             print(f"[DEBUG] Advanced JSON repair failed: {str(e)}")
             return json_str
-    
+
     def _call_narrative_api(self, parsed: dict, score: float, red_flags: list, green_flags: list, blue_flags: list, language: str) -> dict:
         """Call OpenAI to generate narrative sections from the full parsed data and final flags."""
         flags_payload = {
@@ -1759,13 +1771,17 @@ Return ONLY a JSON object with exactly these keys:
         }
         payload = {
             "model": self.model,
+            "system": "You are a SmartBuyer automotive finance expert. Always write in the specified language. Return only valid JSON.",
             "messages": [
-                {"role": "system", "content": "You are a SmartBuyer automotive finance expert. Always write in the specified language. Return only valid JSON."},
-                {"role": "user", "content": prompt}
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt}
+                    ]
+                }
             ],
             "temperature": 0.4,
-            "max_tokens": 2000,
-            "response_format": {"type": "json_object"}
+            "max_tokens": 2000
         }
         try:
             response = requests.post(self.api_url, headers=headers, json=payload, timeout=self.API_TIMEOUT)
@@ -1817,14 +1833,17 @@ Return ONLY valid JSON matching the exact output schema. No markdown, no explana
         }
         payload = {
             "model": self.model,
+            "system": self.system_prompt,
             "messages": [
-                {"role": "system", "content": self.system_prompt},
-                {"role": "user", "content": user_text}
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": user_text}
+                    ]
+                }
             ],
             "temperature": 0.0,
-            "max_tokens": 4096,
-            "seed": 42,
-            "response_format": {"type": "json_object"}
+            "max_tokens": 4096
         }
         last_error = None
         for attempt in range(self.MAX_RETRIES):
@@ -2105,30 +2124,7 @@ Return ONLY valid JSON matching the exact output schema. No markdown, no explana
                 # Always run through converter for consistent structure
                 # Handles both nested (buyer_info, vehicle_details...) and flat formats
                 parsed = convert_extracted_json_to_parsed(parsed_data)
-
-                # Route to AI ONLY when no pre-existing flags are supplied.
-                # If the caller already provided red/green/blue flags, their deductions/bonuses
-                # ARE the authoritative score — use Python math, never AI re-scoring.
-                should_use_ai = not parsed.get("has_precomputed_flags", False)
-                if should_use_ai:
-                    print("JSON path: calling AI for full prompt-based analysis...")
-                    # Pass the ORIGINAL raw data so the AI sees real values (apr, msrp, gap_price etc.)
-                    # not the abstracted converter output
-                    api_response = self._call_json_analysis_api(parsed_data, language)
-                    ai_result = self._parse_api_response(api_response)
-                    # Preserve key identity fields from converter
-                    for k in ("buyer_name", "dealer_name", "logo_text", "email",
-                              "phone_number", "address", "state", "region", "vin_number", "date"):
-                        if not ai_result.get(k) and parsed.get(k):
-                            ai_result[k] = parsed[k]
-                    if not ai_result.get("trade") and parsed.get("trade"):
-                        ai_result["trade"] = parsed["trade"]
-                    # Do NOT use AI's score field — AI flags contain correct deductions/bonuses,
-                    # Python will compute the final score from those flags below.
-                    ai_result.pop("score", None)
-                    ai_result["has_precomputed_flags"] = True
-                    ai_result["_ai_narrative_done"] = True
-                    parsed = ai_result
+                print("JSON path: using split deterministic scoring + narrative generation...")
             elif base64_images is None:
                 validated_files = await self._validate_files(files)
                 if not validated_files:
