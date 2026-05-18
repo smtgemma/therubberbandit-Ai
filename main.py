@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
@@ -11,7 +14,6 @@ from App.services.contract.multi_image_analysis_route import router as contract_
 from App.services.lease.lease_analysis_route import router as lease_router
 from App.services.rate_helper.discount_schema import DiscountLineItem, DiscountTotals
 from typing import List, Optional, Dict
-from dotenv import load_dotenv
 from fastapi import UploadFile
 import os
 import json

@@ -1,0 +1,10 @@
+Traceback (most recent call last):
+  File "debug_import.py", line 2, in <module>
+    import App.services.rating.rating
+  File "C:\Users\Promit\Videos\therubberbandit-Ai2-2\App\services\rating\rating.py", line 3, in <module>
+    from App.services.rate_helper.discount_detector import DiscountDetector
+  File "C:\Users\Promit\Videos\therubberbandit-Ai2-2\App\services\rate_helper\discount_detector.py", line 7, in <module>
+    class DiscountDetector:
+  File "C:\Users\Promit\Videos\therubberbandit-Ai2-2\App\services\rate_helper\discount_detector.py", line 67, in DiscountDetector
+    def _classify_discount_type(self, cleaned_text: str) -> tuple[DiscountType, Optional[str], float]:
+TypeError: 'type' object is not subscriptable

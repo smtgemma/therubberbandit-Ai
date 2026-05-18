@@ -1,5 +1,5 @@
 import re
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from .discount_schema import DiscountLineItem, DiscountTotals, DiscountType, SignSource, AnalysisMode
 from .discount_keywords import DiscountKeywords
 from .ocr_normalization_schema import NormalizedLineItem
@@ -64,7 +64,7 @@ class DiscountDetector:
         
         return False
     
-    def _classify_discount_type(self, cleaned_text: str) -> tuple[DiscountType, Optional[str], float]:
+    def _classify_discount_type(self, cleaned_text: str) -> Tuple[DiscountType, Optional[str], float]:
         """
         Classify discount type based on keywords.
         
@@ -157,7 +157,7 @@ class DiscountDetector:
         self,
         normalized_items: List[NormalizedLineItem],
         mode: AnalysisMode = "QUOTE"
-    ) -> tuple[List[DiscountLineItem], DiscountTotals]:
+    ) -> Tuple[List[DiscountLineItem], DiscountTotals]:
         """
         Process all normalized line items and extract discounts.
         

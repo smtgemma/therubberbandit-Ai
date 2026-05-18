@@ -398,6 +398,7 @@ Retail Purchase Agreement:
 Sales Quote (multi-column):
   "MSRP/Retail" → msrp
   "Selling Price" → sale_price
+  "Fees" / "Dealer Fees" / "Doc Fee" / "Total Fees" → fees_breakdown.documentary_fee
   "Trade Allowance" → trade_in.gross_trade_in
   "Trade Payoff" / "Payoff" / "Amount Owed" → trade_in.trade_payoff
   "Trade Difference" (if explicitly shown) → map by sign:

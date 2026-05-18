@@ -313,6 +313,7 @@ Each flag MUST be a JSON object with these fields:
 **BLUE FLAGS - Advisory only, zero score impact:**
 - APR 10-15%: Higher than ideal but not excessive
 - Extended term: Loans over 72 months
+- GAP risk (REQUIRED IF GAP IS ABSENT): If GAP is not explicitly listed in the quote line items, you MUST output this blue flag: {"type": "Protection Review", "message": "GAP not shown on quote — ask before finalizing", "item": "GAP"}
 - Missing information: Items that need clarification
 - General Advisory (ALWAYS REQUIRED): If none of the above specific criteria apply, you MUST still include exactly one blue flag: `{"type": "General Advisory", "message": "Review all final quote terms and itemized pricing carefully before agreeing to any deal.", "item": "General"}` (0 points)
 
@@ -1858,6 +1859,18 @@ Return ONLY valid JSON matching the exact output schema. No markdown, no explana
                 else:
                     blue_flags.append(flag_obj)
 
+            # Manually inject the GAP blue flag if GAP is missing from line items
+            has_gap = False
+            for item in parsed.get("line_items", []):
+                if isinstance(item, dict):
+                    desc = str(item.get("description") or item.get("item") or "").lower()
+                    if "gap" in desc.split() or "guaranteed asset" in desc or "debt cancellation" in desc:
+                        has_gap = True
+                        break
+            if not has_gap:
+                blue_flags.append(Flag(type="Protection Review", message="GAP not shown on quote — ask before finalizing", item="GAP"))
+
+
             red_flags = self._translate_flags(red_flags, language)
             green_flags = self._translate_flags(green_flags, language)
             blue_flags = self._translate_flags(blue_flags, language)
@@ -2233,9 +2246,11 @@ Return ONLY valid JSON matching the exact output schema. No markdown, no explana
                         flags_list.append(Flag(type=str(flag_kwargs["type"]), message=str(flag_kwargs["message"]), item=str(flag_kwargs["item"])))
                 return flags_list
 
-            red_flags = parse_flags(parsed.get("red_flags", []))
-            green_flags = parse_flags(parsed.get("green_flags", []))
-            blue_flags = parse_flags(parsed.get("blue_flags", []))
+            # KEEP the red_flags, green_flags, blue_flags already populated by scoring_engine.py
+            # But parse the LLM's raw flags carefully so we can include its narrative descriptions
+            llm_red_flags = parse_flags(parsed.get("red_flags", []))
+            llm_green_flags = parse_flags(parsed.get("green_flags", []))
+            llm_blue_flags = parse_flags(parsed.get("blue_flags", []))
 
             has_precomputed = parsed.get("has_precomputed_flags", False)
 
@@ -2243,15 +2258,24 @@ Return ONLY valid JSON matching the exact output schema. No markdown, no explana
             # are unreliable (AI often returns 0). Zero them out — Python audit flags
             # are the SOLE scoring authority.
             if has_precomputed:
-                red_flags = [
+                llm_red_flags = [
                     Flag(type=f.type, message=f.message, item=f.item, deduction=None, bonus=f.bonus)
-                    for f in red_flags
+                    for f in llm_red_flags
                 ]
-                green_flags = [
+                llm_green_flags = [
                     Flag(type=f.type, message=f.message, item=f.item, deduction=f.deduction, bonus=None)
-                    for f in green_flags
+                    for f in llm_green_flags
                 ]
-                print(f"AI flags zeroed — Red: {len(red_flags)}, Green: {len(green_flags)}, Blue: {len(blue_flags)}")
+                print(f"AI flags zeroed — Red: {len(llm_red_flags)}, Green: {len(llm_green_flags)}, Blue: {len(llm_blue_flags)}")
+
+            # Append LLM flags if they don't logically duplicate an existing deterministic flag type
+            existing_types = {f.type for f in red_flags + green_flags + blue_flags}
+            for f in llm_red_flags:
+                if f.type not in existing_types: red_flags.append(f)
+            for f in llm_green_flags:
+                if f.type not in existing_types: green_flags.append(f)
+            for f in llm_blue_flags:
+                if f.type not in existing_types: blue_flags.append(f)
 
             # ALWAYS merge Python audit flags — they have correct deduction/bonus values
             # computed from the actual deal data (APR, doc fee, LTV, MSRP, trade, etc.).
@@ -2270,7 +2294,7 @@ Return ONLY valid JSON matching the exact output schema. No markdown, no explana
                 elif audit_flag.type == "blue":
                     blue_flags.append(flag_obj)
 
-            print(f"Final flags (AI + Python audit) — Red: {len(red_flags)}, Green: {len(green_flags)}, Blue: {len(blue_flags)}")
+            print(f"Final flags (Engine + AI + Python audit) — Red: {len(red_flags)}, Green: {len(green_flags)}, Blue: {len(blue_flags)}")
 
             # ── Remove suppressed flag categories from display and scoring ──
             _suppressed = {"poor transparency", "high documentation fee", "excessive doc fee",

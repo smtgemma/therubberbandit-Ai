@@ -2190,6 +2190,18 @@ Return ONLY valid JSON matching the exact output schema. No markdown, no explana
                 else:
                     blue_flags.append(flag_obj)
 
+            # Manually inject the GAP blue flag if GAP is missing from line items
+            has_gap = False
+            for item in parsed.get("line_items", []):
+                if isinstance(item, dict):
+                    desc = str(item.get("description") or item.get("item") or "").lower()
+                    if "gap" in desc.split() or "guaranteed asset" in desc or "debt cancellation" in desc:
+                        has_gap = True
+                        break
+            if not has_gap:
+                blue_flags.append(Flag(type="Protection Review", message="GAP not shown on quote — ask before finalizing", item="GAP"))
+
+
             red_flags = self._translate_flags(red_flags, language)
             green_flags = self._translate_flags(green_flags, language)
             blue_flags = self._translate_flags(blue_flags, language)
@@ -2200,6 +2212,7 @@ Return ONLY valid JSON matching the exact output schema. No markdown, no explana
                 green_flags.append(Flag(type="General", message="No standout positive elements identified in this contract.", item="General"))
             if not blue_flags:
                 blue_flags.append(Flag(type="General Advisory", message="Review all final contract terms and itemized pricing carefully before agreeing to any deal.", item="General Advisory"))
+
 
             score_value = float(scoring_result.score_int)
             trade_data = self._extract_trade_data(parsed)
