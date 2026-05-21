@@ -60,10 +60,10 @@ class AuditClassifier:
     def __init__(self):
         pricing_caps = load_pricing_caps()
         self.bundle_max_price = float(
-            get_pricing_cap(pricing_caps, ("add_ons", "bundle_max_price"), 1500.0)
+            get_pricing_cap(pricing_caps, ("add_ons", "bundle_max_price"))
         )
         self.bundle_max_percent_of_vehicle = float(
-            get_pricing_cap(pricing_caps, ("add_ons", "bundle_max_percent_of_vehicle"), 0.10)
+            get_pricing_cap(pricing_caps, ("add_ons", "bundle_max_percent_of_vehicle"))
         )
     
     def _clean_text(self, text: str) -> str:

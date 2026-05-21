@@ -21,7 +21,7 @@
         "GAP_OVERPRICED",
         "VSC_OVERPRICED",
         "MAINTENANCE_OVERPRICED",
-        "TIRE_WHEEL_EXCESSIVE",
+        "TIRE_WHEEL_OVERPRICED",
         "DEBT_CANCELLATION_OVERPRICED",
         "ADDON_OVERPRICED",
         "MISSING_PRODUCT_PRICE"
@@ -54,7 +54,7 @@
         "GAP_OVERPRICED",
         "VSC_OVERPRICED",
         "MAINTENANCE_OVERPRICED",
-        "TIRE_WHEEL_EXCESSIVE",
+        "TIRE_WHEEL_OVERPRICED",
         "DEBT_CANCELLATION_OVERPRICED",
         "ADDON_OVERPRICED"
       ],
@@ -92,6 +92,36 @@
       "if_active": "TRADE_PAYOFF_CONFLICT",
       "suppress": ["NEGATIVE_EQUITY_UNKNOWN"],
       "reason": "If trade payoff is in conflict, negative equity cannot be calculated."
+    },
+    {
+      "if_active": "HIGH_RISK_TERM",
+      "suppress": ["EXTENDED_TERM"],
+      "reason": "84+ month high-risk term supersedes the 73-83 month extended term tier."
+    },
+    {
+      "if_active": "GAP_MISSING_CRITICAL",
+      "suppress": ["GAP_MISSING_HIGH", "GAP_MISSING_LOW_DOWN"],
+      "reason": "Critical missing GAP condition supersedes lower missing GAP tiers."
+    },
+    {
+      "if_active": "GAP_MISSING_HIGH",
+      "suppress": ["GAP_MISSING_LOW_DOWN"],
+      "reason": "Higher missing GAP severity supersedes lower low-down advisory."
+    },
+    {
+      "if_active": "VSC_MISSING_HIGH",
+      "suppress": ["VSC_MISSING_STANDARD"],
+      "reason": "High VSC missing risk supersedes standard missing VSC advisory."
+    },
+    {
+      "if_active": "PRICE_INCREASED_FROM_QUOTE",
+      "suppress": ["PRODUCTS_ADDED_FROM_QUOTE"],
+      "reason": "Price increase is the stronger quote-to-contract conduct signal."
+    },
+    {
+      "if_active": "DUPLICATE_GAP",
+      "suppress": ["GAP_OVERPRICED"],
+      "reason": "Duplicate GAP is worse than pricing concern and suppresses the pricing flag."
     }
   ],
   "backend_overload": {
@@ -100,7 +130,7 @@
       "GAP_OVERPRICED",
       "VSC_OVERPRICED",
       "MAINTENANCE_OVERPRICED",
-      "TIRE_WHEEL_EXCESSIVE",
+      "TIRE_WHEEL_OVERPRICED",
       "DEBT_CANCELLATION_OVERPRICED",
       "ADDON_OVERPRICED"
     ],

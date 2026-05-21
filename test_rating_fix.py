@@ -15,11 +15,11 @@ mock_parsed_data = {
     ],
     "flags": [
         # Deterministic scoring flag from engine (that triggers overpriced doc fee)
-        {"id": "DOC_FEE_EXCESSIVE", "confidence": 1.0}
+        {"id": "DOC_FEE_ABOVE_STATE_CAP", "confidence": 1.0}
     ],
     "normalized_pricing": {
         "msrp": 20000,
-        "doc_fee": 1200,  # Should trigger DOC_FEE_EXCESSIVE
+        "doc_fee": 1200,  # Should trigger DOC_FEE_ABOVE_STATE_CAP
         "selling_price": 20000
     },
     "audit_status": "COMPLETE",
@@ -47,10 +47,10 @@ async def test_rating():
         red_flag_types = [f.type for f in res.red_flags]
         print("Red Flags present:", red_flag_types)
         
-        if "DOC_FEE_EXCESSIVE" in red_flag_types:
-            print("SUCCESS: Deterministic flag DOC_FEE_EXCESSIVE preserved.")
+        if "DOC_FEE_ABOVE_STATE_CAP" in red_flag_types:
+            print("SUCCESS: Deterministic flag DOC_FEE_ABOVE_STATE_CAP preserved.")
         else:
-            print("FAILURE: Deterministic flag DOC_FEE_EXCESSIVE missing.")
+            print("FAILURE: Deterministic flag DOC_FEE_ABOVE_STATE_CAP missing.")
             
         print("Red flag objects:")
         for r in res.red_flags:

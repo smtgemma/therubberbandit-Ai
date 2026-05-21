@@ -2,11 +2,32 @@ import json
 import hashlib
 import os
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from .ocr_normalizer import OCRNormalizer
 
 RULES_DIR = os.path.join(os.path.dirname(__file__), "rules")
+BASE_SCORE = 100.0
+SCORE_FLOOR = 0.0
+SCORE_CEILING = 100.0
+MAX_FLAG_DEDUCTION = -15.0
+VALID_AUDIT_STATUSES = {
+    "COMPLETE",
+    "HUMAN_REVIEW_RECOMMENDED",
+    "INCOMPLETE",
+    "CONFLICT_HOLD",
+    "RULE_LOAD_FAILURE",
+    "INVALID_REPLAY_CONTEXT",
+}
+SCORING_ELIGIBLE_STATUSES = {"COMPLETE", "HUMAN_REVIEW_RECOMMENDED"}
+
+
+class RuleLoadError(RuntimeError):
+    """Raised when locked scoring rules are missing or malformed."""
+
+
+class InvalidAuditStatusError(ValueError):
+    """Raised when an audit status is outside the locked enum."""
 
 
 @dataclass
@@ -57,10 +78,41 @@ class RuleSet:
         self.doc_fee_caps = doc_fee_caps
         self.rules_hash = rules_hash
 
+    def require_pricing_cap(self, path: Iterable[str]) -> Any:
+        return _require_path(self.pricing_caps, path, "pricing_caps")
+
+    def require_doc_fee_rule(self, path: Iterable[str]) -> Any:
+        return _require_path(self.doc_fee_caps, path, "doc_fee_state_rules")
+
 
 def _read_json(path: str) -> dict:
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuleLoadError(f"RULE_LOAD_FAILURE: cannot load {path}") from exc
+    if not isinstance(data, dict):
+        raise RuleLoadError(f"RULE_LOAD_FAILURE: {path} must contain a JSON object")
+    return data
+
+
+def _require_path(data: dict, path: Iterable[str], source: str) -> Any:
+    current: Any = data
+    traversed: List[str] = []
+    for key in path:
+        traversed.append(key)
+        if not isinstance(current, dict) or key not in current:
+            joined = ".".join(traversed)
+            raise RuleLoadError(f"RULE_LOAD_FAILURE: missing {source}.{joined}")
+        current = current[key]
+    return current
+
+
+def _require_float(value: Any, label: str) -> float:
+    result = _safe_float(value)
+    if result is None:
+        raise RuleLoadError(f"RULE_LOAD_FAILURE: {label} must be numeric")
+    return result
 
 
 def load_rules() -> RuleSet:
@@ -73,12 +125,17 @@ def load_rules() -> RuleSet:
 
     contents = []
     for path in paths.values():
-        with open(path, "rb") as f:
-            contents.append(f.read())
+        try:
+            with open(path, "rb") as f:
+                contents.append(f.read())
+        except OSError as exc:
+            raise RuleLoadError(f"RULE_LOAD_FAILURE: cannot load {path}") from exc
 
     rules_hash = hashlib.sha256(b"".join(contents)).hexdigest()
 
     raw_flags = _read_json(paths["flag_registry"]).get("flags", [])
+    if not isinstance(raw_flags, list):
+        raise RuleLoadError("RULE_LOAD_FAILURE: flag_registry.flags must be a list")
     registry: Dict[str, FlagDefinition] = {}
     for item in raw_flags:
         flag_id = str(item.get("id", "")).strip().upper()
@@ -97,8 +154,47 @@ def load_rules() -> RuleSet:
     suppression = _read_json(paths["suppression"])
     pricing_caps = _read_json(paths["pricing_caps"])
     doc_fee_caps = _read_json(paths["doc_fee_caps"])
+    _validate_pricing_caps(pricing_caps)
+    _validate_doc_fee_caps(doc_fee_caps)
 
     return RuleSet(registry, suppression, pricing_caps, doc_fee_caps, rules_hash)
+
+
+def _validate_pricing_caps(pricing_caps: dict) -> None:
+    required_paths = [
+        ("gap_dca", "msrp_threshold"),
+        ("gap_dca", "cap_under_threshold"),
+        ("gap_dca", "cap_over_threshold"),
+        ("gap_dca", "percent_under_threshold"),
+        ("vsc", "msrp_threshold"),
+        ("vsc", "new_under", "percent"),
+        ("vsc", "new_under", "cap"),
+        ("vsc", "used_under", "percent"),
+        ("vsc", "used_under", "cap"),
+        ("vsc", "new_over", "percent"),
+        ("vsc", "used_over", "percent"),
+        ("vsc", "high_mileage", "miles_min"),
+        ("vsc", "high_mileage", "percent"),
+        ("maintenance", "percent"),
+        ("maintenance", "cap"),
+        ("add_ons", "combined_cap"),
+        ("backend_total", "max_percent_of_msrp"),
+        ("term", "extended_min_months"),
+        ("term", "extended_max_months"),
+        ("term", "high_risk_min_months"),
+        ("lease_mileage", "standard_min"),
+        ("lease_mileage", "standard_max"),
+    ]
+    for path in required_paths:
+        value = _require_path(pricing_caps, path, "pricing_caps")
+        _require_float(value, f"pricing_caps.{'.'.join(path)}")
+
+
+def _validate_doc_fee_caps(doc_fee_caps: dict) -> None:
+    _require_float(_require_path(doc_fee_caps, ("benchmark_default",), "doc_fee_state_rules"), "doc_fee_state_rules.benchmark_default")
+    states = _require_path(doc_fee_caps, ("states",), "doc_fee_state_rules")
+    if not isinstance(states, dict):
+        raise RuleLoadError("RULE_LOAD_FAILURE: doc_fee_state_rules.states must be an object")
 
 
 def _confidence_modifier(confidence: float) -> float:
@@ -142,8 +238,8 @@ def build_active_flags(flags_payload: List[dict], registry: Dict[str, FlagDefini
         adjusted = points
         if points < 0:
             adjusted = points * _confidence_modifier(confidence)
-            if adjusted < -15:
-                adjusted = -15.0
+            if adjusted < MAX_FLAG_DEDUCTION:
+                adjusted = MAX_FLAG_DEDUCTION
         active_flags.append(ActiveFlag(
             flag_id=flag_id,
             group=definition.group,
@@ -168,8 +264,8 @@ def _make_flag(flag_id: str, rules: RuleSet, confidence: float = 1.0, message: O
     adjusted = points
     if points < 0:
         adjusted = points * _confidence_modifier(confidence)
-        if adjusted < -15:
-            adjusted = -15.0
+        if adjusted < MAX_FLAG_DEDUCTION:
+            adjusted = MAX_FLAG_DEDUCTION
     return ActiveFlag(
         flag_id=definition.flag_id,
         group=definition.group,
@@ -227,17 +323,23 @@ def compute_flags_from_parsed(parsed: dict, rules: RuleSet, mode: str) -> List[A
     doc_fee = _safe_float((parsed.get("normalized_pricing") or {}).get("doc_fee"))
     if doc_fee is not None:
         state = str(parsed.get("state") or "").upper().strip()
-        caps = rules.doc_fee_caps.get("states", {})
-        benchmark = _safe_float(rules.doc_fee_caps.get("benchmark_default"))
+        caps = rules.require_doc_fee_rule(("states",))
+        benchmark = _require_float(
+            rules.require_doc_fee_rule(("benchmark_default",)),
+            "doc_fee_state_rules.benchmark_default",
+        )
         cap = None
         if state in caps:
-            cap = _safe_float(caps[state].get("cap"))
+            cap = _require_float(
+                _require_path(caps[state], ("cap",), f"doc_fee_state_rules.states.{state}"),
+                f"doc_fee_state_rules.states.{state}.cap",
+            )
         else:
             no_cap_flag = _make_flag("NO_CAP", rules, source="system")
             if no_cap_flag:
                 flags.append(no_cap_flag)
         if cap is not None and doc_fee > cap:
-            excessive = _make_flag("DOC_FEE_EXCESSIVE", rules)
+            excessive = _make_flag("DOC_FEE_ABOVE_STATE_CAP", rules)
             if excessive:
                 flags.append(excessive)
         else:
@@ -255,6 +357,7 @@ def compute_flags_from_parsed(parsed: dict, rules: RuleSet, mode: str) -> List[A
     vsc_total = 0.0
     maintenance_total = 0.0
     addon_total = 0.0
+    tire_wheel_total = 0.0
     dca_present = False
 
     for item in normalized_items:
@@ -269,16 +372,19 @@ def compute_flags_from_parsed(parsed: dict, rules: RuleSet, mode: str) -> List[A
             vsc_total += amount
         elif category == "MAINTENANCE":
             maintenance_total += amount
+        elif category == "TIRE_WHEEL_PROTECTION":
+            tire_wheel_total += amount
         elif category == "ADDON_PACKAGE":
             addon_total += amount
 
+    backend_total = gap_total + vsc_total + maintenance_total + tire_wheel_total
+
     # GAP / DCA caps
     if gap_total > 0 and msrp is not None:
-        gap_rules = rules.pricing_caps.get("gap_dca", {})
-        msrp_threshold = _safe_float(gap_rules.get("msrp_threshold")) or 60000.0
-        cap_under = _safe_float(gap_rules.get("cap_under_threshold")) or 1200.0
-        cap_over = _safe_float(gap_rules.get("cap_over_threshold")) or 1500.0
-        percent_under = _safe_float(gap_rules.get("percent_under_threshold")) or 0.03
+        msrp_threshold = _require_float(rules.require_pricing_cap(("gap_dca", "msrp_threshold")), "pricing_caps.gap_dca.msrp_threshold")
+        cap_under = _require_float(rules.require_pricing_cap(("gap_dca", "cap_under_threshold")), "pricing_caps.gap_dca.cap_under_threshold")
+        cap_over = _require_float(rules.require_pricing_cap(("gap_dca", "cap_over_threshold")), "pricing_caps.gap_dca.cap_over_threshold")
+        percent_under = _require_float(rules.require_pricing_cap(("gap_dca", "percent_under_threshold")), "pricing_caps.gap_dca.percent_under_threshold")
 
         if msrp < msrp_threshold:
             gap_cap = min(cap_under, msrp * percent_under)
@@ -301,27 +407,23 @@ def compute_flags_from_parsed(parsed: dict, rules: RuleSet, mode: str) -> List[A
 
     # VSC caps
     if vsc_total > 0 and msrp is not None:
-        vsc_rules = rules.pricing_caps.get("vsc", {})
-        msrp_threshold = _safe_float(vsc_rules.get("msrp_threshold")) or 45000.0
-        new_under = vsc_rules.get("new_under", {})
-        used_under = vsc_rules.get("used_under", {})
-        new_over = vsc_rules.get("new_over", {})
-        used_over = vsc_rules.get("used_over", {})
-        cap_new = None
-        cap_used = None
+        msrp_threshold = _require_float(rules.require_pricing_cap(("vsc", "msrp_threshold")), "pricing_caps.vsc.msrp_threshold")
+        vehicle_condition = _vehicle_condition(parsed)
         if msrp <= msrp_threshold:
-            cap_new = min(msrp * (_safe_float(new_under.get("percent")) or 0.15), _safe_float(new_under.get("cap")) or 4000.0)
-            cap_used = min(msrp * (_safe_float(used_under.get("percent")) or 0.16), _safe_float(used_under.get("cap")) or 6000.0)
+            section = "used_under" if vehicle_condition == "USED" else "new_under"
+            percent = _require_float(rules.require_pricing_cap(("vsc", section, "percent")), f"pricing_caps.vsc.{section}.percent")
+            cap_limit = _require_float(rules.require_pricing_cap(("vsc", section, "cap")), f"pricing_caps.vsc.{section}.cap")
+            cap = min(msrp * percent, cap_limit)
         else:
-            cap_new = msrp * (_safe_float(new_over.get("percent")) or 0.15)
-            cap_used = msrp * (_safe_float(used_over.get("percent")) or 0.16)
-
-        cap = min(cap_new, cap_used)
+            section = "used_over" if vehicle_condition == "USED" else "new_over"
+            percent = _require_float(rules.require_pricing_cap(("vsc", section, "percent")), f"pricing_caps.vsc.{section}.percent")
+            cap = msrp * percent
 
         mileage = _safe_float(parsed.get("mileage") or parsed.get("odometer") or parsed.get("vehicle_mileage"))
-        high_mileage = vsc_rules.get("high_mileage", {})
-        if mileage is not None and mileage >= (high_mileage.get("miles_min") or 100001):
-            cap = msrp * (_safe_float(high_mileage.get("percent")) or 0.17)
+        high_mileage_min = _require_float(rules.require_pricing_cap(("vsc", "high_mileage", "miles_min")), "pricing_caps.vsc.high_mileage.miles_min")
+        if mileage is not None and mileage >= high_mileage_min:
+            high_mileage_percent = _require_float(rules.require_pricing_cap(("vsc", "high_mileage", "percent")), "pricing_caps.vsc.high_mileage.percent")
+            cap = msrp * high_mileage_percent
 
         if vsc_total > cap:
             overpriced = _make_flag("VSC_OVERPRICED", rules)
@@ -334,9 +436,8 @@ def compute_flags_from_parsed(parsed: dict, rules: RuleSet, mode: str) -> List[A
 
     # Maintenance caps
     if maintenance_total > 0 and msrp is not None:
-        maint_rules = rules.pricing_caps.get("maintenance", {})
-        percent = _safe_float(maint_rules.get("percent")) or 0.05
-        cap = _safe_float(maint_rules.get("cap")) or 1500.0
+        percent = _require_float(rules.require_pricing_cap(("maintenance", "percent")), "pricing_caps.maintenance.percent")
+        cap = _require_float(rules.require_pricing_cap(("maintenance", "cap")), "pricing_caps.maintenance.cap")
         maintenance_cap = min(cap, msrp * percent)
         if maintenance_total > maintenance_cap:
             overpriced = _make_flag("MAINTENANCE_OVERPRICED", rules)
@@ -348,21 +449,37 @@ def compute_flags_from_parsed(parsed: dict, rules: RuleSet, mode: str) -> List[A
                 flags.append(within)
 
     # Add-on combined cap (front-end)
-    add_on_rules = rules.pricing_caps.get("add_ons", {})
-    add_on_cap = _safe_float(add_on_rules.get("combined_cap"))
-    if add_on_cap is not None and addon_total > add_on_cap:
+    add_on_cap = _require_float(rules.require_pricing_cap(("add_ons", "combined_cap")), "pricing_caps.add_ons.combined_cap")
+    if addon_total > add_on_cap:
         cap_exceeded = _make_flag("ADDON_CAP_EXCEEDED", rules)
         if cap_exceeded:
             flags.append(cap_exceeded)
 
+    if backend_total > 0 and msrp is not None:
+        backend_percent = _require_float(
+            rules.require_pricing_cap(("backend_total", "max_percent_of_msrp")),
+            "pricing_caps.backend_total.max_percent_of_msrp",
+        )
+        if backend_total / msrp > backend_percent:
+            overloaded = _make_flag("BACKEND_OVERLOAD_DETECTED", rules)
+            if overloaded:
+                flags.append(overloaded)
+        else:
+            within = _make_flag("BACKEND_WITHIN_THRESHOLD", rules)
+            if within:
+                flags.append(within)
+
     # Term-based structural flags
     term_months = _safe_float((parsed.get("term") or {}).get("months"))
     if term_months is not None:
-        if term_months >= 84:
+        high_risk_min = _require_float(rules.require_pricing_cap(("term", "high_risk_min_months")), "pricing_caps.term.high_risk_min_months")
+        extended_min = _require_float(rules.require_pricing_cap(("term", "extended_min_months")), "pricing_caps.term.extended_min_months")
+        extended_max = _require_float(rules.require_pricing_cap(("term", "extended_max_months")), "pricing_caps.term.extended_max_months")
+        if term_months >= high_risk_min:
             high_term = _make_flag("HIGH_RISK_TERM", rules)
             if high_term:
                 flags.append(high_term)
-        elif 73 <= term_months <= 83:
+        elif extended_min <= term_months <= extended_max:
             extended = _make_flag("EXTENDED_TERM", rules)
             if extended:
                 flags.append(extended)
@@ -378,16 +495,30 @@ def compute_flags_from_parsed(parsed: dict, rules: RuleSet, mode: str) -> List[A
     if mode == "LEASE":
         annual_miles = _safe_float(parsed.get("annual_miles"))
         if annual_miles is not None:
-            if annual_miles < 10000:
-                low_miles = _make_flag("LOW_MILEAGE_ALLOWANCE", rules)
+            standard_min = _require_float(rules.require_pricing_cap(("lease_mileage", "standard_min")), "pricing_caps.lease_mileage.standard_min")
+            standard_max = _require_float(rules.require_pricing_cap(("lease_mileage", "standard_max")), "pricing_caps.lease_mileage.standard_max")
+            if annual_miles < standard_min:
+                low_miles = _make_flag("MILEAGE_BELOW_STANDARD", rules)
                 if low_miles:
                     flags.append(low_miles)
-            elif 10000 <= annual_miles <= 12000:
+            elif standard_min <= annual_miles <= standard_max:
                 standard = _make_flag("STANDARD_MILEAGE_PROGRAM", rules)
                 if standard:
                     flags.append(standard)
 
     return flags
+
+
+def _vehicle_condition(parsed: dict) -> str:
+    for key in ("vehicle_condition", "condition", "new_used", "vehicle_status"):
+        value = parsed.get(key)
+        if value:
+            text = str(value).upper()
+            if "USED" in text or "PRE-OWNED" in text or "PREOWNED" in text:
+                return "USED"
+            if "NEW" in text:
+                return "NEW"
+    return "NEW"
 
 
 def apply_suppression(flags: List[ActiveFlag], suppression_rules: dict) -> List[str]:
@@ -453,7 +584,17 @@ def score_flags(
     rules: RuleSet,
     audit_status: str
 ) -> ScoringResult:
-    eligible = audit_status in ("COMPLETE", "HUMAN_REVIEW_RECOMMENDED")
+    audit_status = str(audit_status or "").upper()
+    if audit_status not in VALID_AUDIT_STATUSES:
+        raise InvalidAuditStatusError(f"Invalid audit_status: {audit_status}")
+
+    if audit_status == "HUMAN_REVIEW_RECOMMENDED":
+        for flag in flags:
+            if flag.points < 0:
+                flag.confidence = min(flag.confidence, 0.39)
+                flag.adjusted_points = max(flag.points * 0.8, MAX_FLAG_DEDUCTION)
+
+    eligible = audit_status in SCORING_ELIGIBLE_STATUSES
     if not eligible:
         return ScoringResult(
             score=0.0,
@@ -468,13 +609,13 @@ def score_flags(
         )
 
     suppressed_ids = apply_suppression(flags, rules.suppression)
-    total = 100.0
+    total = BASE_SCORE
     for flag in flags:
         if flag.suppressed or not flag.scoring_eligible:
             continue
         total += flag.adjusted_points
 
-    total = max(0.0, min(100.0, total))
+    total = max(SCORE_FLOOR, min(SCORE_CEILING, total))
     score_int = int(round(total))
 
     trust_delta, trust_skipped = compute_trust_score_delta(flags)

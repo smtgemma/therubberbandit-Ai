@@ -253,9 +253,9 @@
       "scoring_eligible": true
     },
     {
-      "id": "DOC_FEE_EXCESSIVE",
+      "id": "DOC_FEE_ABOVE_STATE_CAP",
       "group": "DEALER_CONDUCT",
-      "points": -5,
+      "points": -6,
       "severity": "MEDIUM",
       "modes": ["QUOTE", "CONTRACT", "LEASE"],
       "description": "The documentary fee exceeds the cap for your state. This fee is largely dealer-controlled and may be negotiable.",
@@ -271,27 +271,27 @@
       "scoring_eligible": true
     },
     {
-      "id": "DUPLICATE_PRODUCT_DETECTED",
+      "id": "DUPLICATE_GAP",
       "group": "DEALER_CONDUCT",
       "points": -5,
       "severity": "MEDIUM",
       "modes": ["QUOTE", "CONTRACT", "LEASE"],
-      "description": "The same product type appears twice in your deal. Verify you are not paying for duplicate coverage.",
+      "description": "GAP coverage appears to be charged more than once. Verify you are not paying for duplicate GAP coverage.",
       "scoring_eligible": true
     },
     {
       "id": "MAINTENANCE_OVERPRICED",
       "group": "DEALER_CONDUCT",
-      "points": -5,
+      "points": -6,
       "severity": "MEDIUM",
       "modes": ["QUOTE", "CONTRACT", "LEASE"],
       "description": "The maintenance plan is priced above the SmartBuyer cap. Consider whether this plan fits your driving needs.",
       "scoring_eligible": true
     },
     {
-      "id": "TIRE_WHEEL_EXCESSIVE",
+      "id": "TIRE_WHEEL_OVERPRICED",
       "group": "DEALER_CONDUCT",
-      "points": -5,
+      "points": -6,
       "severity": "MEDIUM",
       "modes": ["QUOTE", "CONTRACT", "LEASE"],
       "description": "The tire and wheel protection product is significantly overpriced based on the SmartBuyer cap.",
@@ -307,9 +307,9 @@
       "scoring_eligible": true
     },
     {
-      "id": "ACQUISITION_FEE_EXCESSIVE",
+      "id": "ACQUISITION_FEE_ABOVE_THRESHOLD",
       "group": "DEALER_CONDUCT",
-      "points": -5,
+      "points": -6,
       "severity": "MEDIUM",
       "modes": ["LEASE"],
       "description": "The acquisition fee on your lease significantly exceeds the standard threshold.",
@@ -380,7 +380,7 @@
       "scoring_eligible": true
     },
     {
-      "id": "LOW_MILEAGE_ALLOWANCE",
+      "id": "MILEAGE_BELOW_STANDARD",
       "group": "STRUCTURAL_RISK",
       "points": -4,
       "severity": "MEDIUM",

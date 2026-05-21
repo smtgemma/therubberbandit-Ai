@@ -1767,28 +1767,28 @@ Return ONLY a JSON object:
 
         pricing_caps = load_pricing_caps()
         acq_standard_low = float(
-            get_pricing_cap(pricing_caps, ("acquisition_fee", "standard_range_low"), 695.0)
+            get_pricing_cap(pricing_caps, ("acquisition_fee", "standard_range_low"))
         )
         acq_standard_high = float(
-            get_pricing_cap(pricing_caps, ("acquisition_fee", "standard_range_high"), 1200.0)
+            get_pricing_cap(pricing_caps, ("acquisition_fee", "standard_range_high"))
         )
         acq_soft_cap = float(
-            get_pricing_cap(pricing_caps, ("acquisition_fee", "soft_cap"), acq_standard_high)
+            get_pricing_cap(pricing_caps, ("acquisition_fee", "soft_cap"))
         )
         acq_hard_cap = float(
-            get_pricing_cap(pricing_caps, ("acquisition_fee", "hard_cap"), 1500.0)
+            get_pricing_cap(pricing_caps, ("acquisition_fee", "hard_cap"))
         )
         maint_percent = float(
-            get_pricing_cap(pricing_caps, ("maintenance", "percent"), 0.05)
+            get_pricing_cap(pricing_caps, ("maintenance", "percent"))
         )
         maint_soft_cap = float(
-            get_pricing_cap(pricing_caps, ("maintenance", "cap"), 1500.0)
+            get_pricing_cap(pricing_caps, ("maintenance", "cap"))
         )
         maint_hard_percent = float(
-            get_pricing_cap(pricing_caps, ("maintenance", "hard_percent"), 0.10)
+            get_pricing_cap(pricing_caps, ("maintenance", "hard_percent"))
         )
         maint_hard_cap = float(
-            get_pricing_cap(pricing_caps, ("maintenance", "hard_cap"), 2000.0)
+            get_pricing_cap(pricing_caps, ("maintenance", "hard_cap"))
         )
 
         line_items = parsed.get("line_items", [])

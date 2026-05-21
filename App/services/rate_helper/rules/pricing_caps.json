@@ -28,6 +28,18 @@
     "bundle_max_price": 1500.0,
     "bundle_max_percent_of_vehicle": 0.1
   },
+  "backend_total": {
+    "max_percent_of_msrp": 0.15
+  },
+  "term": {
+    "extended_min_months": 73,
+    "extended_max_months": 83,
+    "high_risk_min_months": 84
+  },
+  "lease_mileage": {
+    "standard_min": 10000,
+    "standard_max": 12000
+  },
   "acquisition_fee": {
     "standard_range_low": 695.0,
     "standard_range_high": 1200.0,
