@@ -67,6 +67,7 @@ class LeaseAnalysisResponse(BaseModel):
     residual_value: Optional[float] = None
     vin_number: Optional[str] = None
     date: Optional[str] = None
+    quote_type: str = Field(default="lease", description="Document type analyzed by AI: contract or lease")
     buyer_message: str
     red_flags: List[Flag] = []
     green_flags: List[Flag] = []

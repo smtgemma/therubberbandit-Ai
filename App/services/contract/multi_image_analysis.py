@@ -2343,6 +2343,7 @@ Return ONLY valid JSON matching the exact output schema. No markdown, no explana
                 selling_price=parsed.get("selling_price"),
                 vin_number=parsed.get("vin_number"),
                 date=parsed.get("date"),
+                quote_type="contract",
                 buyer_message=buyer_msg,
                 red_flags=red_flags,
                 green_flags=green_flags,

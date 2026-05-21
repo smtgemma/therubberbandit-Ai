@@ -64,6 +64,7 @@ class MultiImageAnalysisResponse(BaseModel):
     selling_price: Optional[float] = None
     vin_number: Optional[str] = None
     date: Optional[str] = None
+    quote_type: str = Field(default="contract", description="Document type analyzed by AI: contract or lease")
     buyer_message: str
     red_flags: List[Flag] = Field(default_factory=list)
     green_flags: List[Flag] = Field(default_factory=list)
