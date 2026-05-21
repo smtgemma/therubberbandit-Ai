@@ -1,6 +1,7 @@
 from typing import Optional, List, Dict, Literal
 from pydantic import BaseModel, Field
 from .ocr_normalization_schema import NormalizedLineItem
+from .pricing_caps_loader import load_pricing_caps, get_pricing_cap
 
 # Product classification types
 ProductClassification = Literal[
@@ -56,12 +57,14 @@ class AuditClassifier:
         "dealer package"
     ]
     
-    # Overpriced bundle thresholds
-    BUNDLE_MAX_PRICE = 1500.0
-    BUNDLE_MAX_PERCENT_OF_VEHICLE = 0.10  # 10%
-    
     def __init__(self):
-        pass
+        pricing_caps = load_pricing_caps()
+        self.bundle_max_price = float(
+            get_pricing_cap(pricing_caps, ("add_ons", "bundle_max_price"), 1500.0)
+        )
+        self.bundle_max_percent_of_vehicle = float(
+            get_pricing_cap(pricing_caps, ("add_ons", "bundle_max_percent_of_vehicle"), 0.10)
+        )
     
     def _clean_text(self, text: str) -> str:
         """Normalize text for matching"""
@@ -173,12 +176,12 @@ class AuditClassifier:
         penalty = 0
         
         # Check pricing thresholds
-        price_threshold_exceeded = amount > self.BUNDLE_MAX_PRICE
+        price_threshold_exceeded = amount > self.bundle_max_price
         
         percent_threshold_exceeded = False
         if vehicle_price and vehicle_price > 0:
             percent_of_vehicle = amount / vehicle_price
-            percent_threshold_exceeded = percent_of_vehicle > self.BUNDLE_MAX_PERCENT_OF_VEHICLE
+            percent_threshold_exceeded = percent_of_vehicle > self.bundle_max_percent_of_vehicle
         
         # Determine if overpriced
         if price_threshold_exceeded or percent_threshold_exceeded:

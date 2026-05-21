@@ -25,6 +25,7 @@ from App.services.rate_helper.scoring_engine import (
     compute_flags_from_parsed,
     score_flags,
 )
+from App.services.rate_helper.pricing_caps_loader import load_pricing_caps, get_pricing_cap
 
 load_dotenv()
 
@@ -1219,9 +1220,48 @@ Return VALID JSON matching the schema EXACTLY.
             # Fix missing commas between string values and next key
             clean_content = re.sub(r'(")\s*("(?=[^"]*"\s*:))', r'\1,\2', clean_content)
 
-            return json.loads(clean_content)
+            # Replace control chars that can break JSON parsing
+            clean_content = self._sanitize_json_control_chars(clean_content)
+
+            try:
+                return json.loads(clean_content)
+            except json.JSONDecodeError:
+                repaired_content = self._repair_missing_commas(clean_content)
+                return json.loads(repaired_content)
         except (KeyError, IndexError, json.JSONDecodeError, ValueError) as e:
             raise RuntimeError(f"Lease analysis failed: {str(e)}")
+
+    def _sanitize_json_control_chars(self, text: str) -> str:
+        """Remove invalid control characters that can break JSON parsing."""
+        if not text:
+            return text
+
+        cleaned = []
+        for ch in text:
+            code = ord(ch)
+            if code < 32 or code == 127:
+                cleaned.append(" ")
+            else:
+                cleaned.append(ch)
+
+        return "".join(cleaned)
+
+    def _repair_missing_commas(self, text: str) -> str:
+        """Repair common missing comma cases before JSON parsing."""
+        if not text:
+            return text
+
+        import re
+
+        repaired = text
+        # Missing comma between number and next key
+        repaired = re.sub(r'(\d)\s*("(?=[^\"]*"\s*:))', r'\1,\2', repaired)
+        # Missing comma between true/false/null and next key
+        repaired = re.sub(r'\b(true|false|null)\b\s*("(?=[^\"]*"\s*:))', r'\1,\2', repaired)
+        # Missing comma between closing quote and next key (fallback)
+        repaired = re.sub(r'("\s*)("(?=[^\"]*"\s*:))', r'\1,\2', repaired)
+
+        return repaired
     
     def _assign_badge(self, score: float) -> str:
         """Assign badge based on score"""
@@ -1725,6 +1765,32 @@ Return ONLY a JSON object:
         except (ValueError, TypeError):
             pass
 
+        pricing_caps = load_pricing_caps()
+        acq_standard_low = float(
+            get_pricing_cap(pricing_caps, ("acquisition_fee", "standard_range_low"), 695.0)
+        )
+        acq_standard_high = float(
+            get_pricing_cap(pricing_caps, ("acquisition_fee", "standard_range_high"), 1200.0)
+        )
+        acq_soft_cap = float(
+            get_pricing_cap(pricing_caps, ("acquisition_fee", "soft_cap"), acq_standard_high)
+        )
+        acq_hard_cap = float(
+            get_pricing_cap(pricing_caps, ("acquisition_fee", "hard_cap"), 1500.0)
+        )
+        maint_percent = float(
+            get_pricing_cap(pricing_caps, ("maintenance", "percent"), 0.05)
+        )
+        maint_soft_cap = float(
+            get_pricing_cap(pricing_caps, ("maintenance", "cap"), 1500.0)
+        )
+        maint_hard_percent = float(
+            get_pricing_cap(pricing_caps, ("maintenance", "hard_percent"), 0.10)
+        )
+        maint_hard_cap = float(
+            get_pricing_cap(pricing_caps, ("maintenance", "hard_cap"), 2000.0)
+        )
+
         line_items = parsed.get("line_items", [])
 
         # Helper: find first matching line-item amount by keyword
@@ -1742,16 +1808,19 @@ Return ONLY a JSON object:
         # ── Section 8: Acquisition Fee ──
         acq_fee = find_amount("acquisition")
         if acq_fee is not None:
-            if acq_fee > 1500:
+            if acq_fee > acq_hard_cap:
                 flags.append(AuditFlag(
                     type="red", category="Excessive Acquisition Fee",
-                    message=f"Acquisition fee of ${acq_fee:,.2f} exceeds the $1,500 threshold.",
+                    message=f"Acquisition fee of ${acq_fee:,.2f} exceeds the ${acq_hard_cap:,.0f} threshold.",
                     item="Acquisition Fee", deduction=5, bonus=None
                 ))
-            elif acq_fee > 1200:
+            elif acq_fee > acq_soft_cap:
                 flags.append(AuditFlag(
                     type="red", category="SOFT - Elevated Acquisition Fee",
-                    message=f"Acquisition fee of ${acq_fee:,.2f} is above standard range ($695\u2013$1,200).",
+                    message=(
+                        f"Acquisition fee of ${acq_fee:,.2f} is above standard range "
+                        f"(${acq_standard_low:,.0f}–${acq_standard_high:,.0f})."
+                    ),
                     item="Acquisition Fee", deduction=3, bonus=None
                 ))
 
@@ -1764,7 +1833,6 @@ Return ONLY a JSON object:
                 item="Disposition Fee", deduction=2, bonus=None
             ))
 
-        # ── Section 7: Residual Fairness ──
         term_months = None
         try:
             tm_raw = parsed.get("term", {}).get("months")
@@ -1925,13 +1993,13 @@ Return ONLY a JSON object:
         else:
             if maint_amount and maint_amount > 0 and msrp > 0:
                 maint_pct = (maint_amount / msrp) * 100
-                if maint_amount > 2000 or maint_pct >= 10:
+                if maint_amount > maint_hard_cap or maint_pct >= (maint_hard_percent * 100):
                     flags.append(AuditFlag(
                         type="red", category="Excessive Maintenance Cost",
                         message=f"Maintenance at ${maint_amount:,.2f} ({maint_pct:.1f}% of MSRP) exceeds threshold.",
                         item="Maintenance", deduction=5, bonus=None
                     ))
-                elif maint_amount > 1500 or maint_pct > 5:
+                elif maint_amount > maint_soft_cap or maint_pct > (maint_percent * 100):
                     flags.append(AuditFlag(
                         type="red", category="SOFT - High Maintenance Cost",
                         message=f"Maintenance at ${maint_amount:,.2f} ({maint_pct:.1f}% of MSRP) exceeds recommended range.",
@@ -2869,7 +2937,12 @@ Return ONLY a JSON object:
             narrative_obj = parsed_narrative.get("narrative", {})
                 
             if isinstance(narrative_obj, str):
-                narrative_obj = json.loads(narrative_obj)
+                narrative_text = self._sanitize_json_control_chars(narrative_obj)
+                try:
+                    narrative_obj = json.loads(narrative_text)
+                except json.JSONDecodeError:
+                    narrative_text = self._repair_missing_commas(narrative_text)
+                    narrative_obj = json.loads(narrative_text)
             # Normalize legacy key
             if "trust_score_summary" in narrative_obj and "smartbuyer_score_summary" not in narrative_obj:
                 narrative_obj["smartbuyer_score_summary"] = narrative_obj.pop("trust_score_summary")

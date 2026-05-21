@@ -19,9 +19,19 @@
   },
   "maintenance": {
     "percent": 0.05,
-    "cap": 1500.0
+    "cap": 1500.0,
+    "hard_percent": 0.1,
+    "hard_cap": 2000.0
   },
   "add_ons": {
-    "combined_cap": 1000.0
+    "combined_cap": 1000.0,
+    "bundle_max_price": 1500.0,
+    "bundle_max_percent_of_vehicle": 0.1
+  },
+  "acquisition_fee": {
+    "standard_range_low": 695.0,
+    "standard_range_high": 1200.0,
+    "soft_cap": 1200.0,
+    "hard_cap": 1500.0
   }
 }

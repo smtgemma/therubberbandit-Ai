@@ -172,7 +172,12 @@ class LegalClauses(BaseModel):
     prepayment_penalty_present: Optional[bool] = None
     late_charge_present: Optional[bool] = None
 
+class Confidence(BaseModel):
+    score: Optional[float] = Field(None, ge=0.0, le=1.0)
+    reason: Optional[str] = None
+
 class QuoteExtraction(BaseModel):
+    confidence: Confidence
     document_metadata: DocumentMetadata
     buyer_info: BuyerInfo
     dealer_info: DealerInfo
@@ -283,6 +288,8 @@ class GeminiExtractor:
         """Comprehensive system prompt — extract every visible field from any auto document."""
         return """
 You are an elite automotive document OCR and data extraction specialist. Extract EVERY structured data field visible on the document into a precise JSON response.
+
+Keep all existing response objects and object names unchanged. Add exactly one new top-level object named confidence with score and reason. confidence.score must be 0.0 to 1.0. confidence.reason should briefly mention handwriting legibility, image quality, blur/cropping, or uncertainty. Use lower scores for handwritten letters, blurry scans, cropped fields, ambiguous numbers, or unreadable text.
 
 ═══════════════════════════════════════════
 CARDINAL RULES
@@ -438,3 +445,5 @@ legal_clauses boolean fields: use true if clause is present on document, false i
 legal_clauses.returned_payment_charge: extract as number (e.g. 30), not text.
 
 """
+
+

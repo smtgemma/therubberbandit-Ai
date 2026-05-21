@@ -29,6 +29,7 @@ from App.services.rate_helper.scoring_engine import (
     score_flags,
     ActiveFlag,
 )
+from App.services.rate_helper.pricing_caps_loader import load_pricing_caps, get_pricing_cap
 
 load_dotenv()
 
@@ -322,8 +323,45 @@ class MultiImageAnalyzer:
 
     def _load_contract_system_prompt(self) -> str:
         """Load comprehensive contract analysis system prompt"""
-        return """
+        pricing_caps = load_pricing_caps()
+        gap_msrp_threshold = float(
+            get_pricing_cap(pricing_caps, ("gap_dca", "msrp_threshold"), 60000.0)
+        )
+        gap_cap_under = float(
+            get_pricing_cap(pricing_caps, ("gap_dca", "cap_under_threshold"), 1200.0)
+        )
+        gap_cap_over = float(
+            get_pricing_cap(pricing_caps, ("gap_dca", "cap_over_threshold"), 1500.0)
+        )
+        gap_percent = float(
+            get_pricing_cap(pricing_caps, ("gap_dca", "percent_under_threshold"), 0.03)
+        )
+        vsc_percent = float(
+            get_pricing_cap(pricing_caps, ("vsc", "new_under", "percent"), 0.15)
+        )
+        vsc_cap_amount = float(
+            get_pricing_cap(pricing_caps, ("vsc", "used_under", "cap"), 6000.0)
+        )
+        maintenance_cap = float(
+            get_pricing_cap(pricing_caps, ("maintenance", "cap"), 1500.0)
+        )
+
+        gap_cap_standard_text = f"${gap_cap_under:,.0f}"
+        gap_cap_over_text = f"${gap_cap_over:,.0f}"
+        gap_msrp_threshold_text = f"${gap_msrp_threshold:,.0f}"
+        gap_percent_text = f"{gap_percent * 100:.0f}%"
+        vsc_percent_text = f"{vsc_percent * 100:.0f}%"
+        vsc_cap_text = f"${vsc_cap_amount:,.0f}"
+        maintenance_cap_text = f"${maintenance_cap:,.0f}"
+
+        vsc_threshold_msrp = 0.0
+        if vsc_percent > 0:
+            vsc_threshold_msrp = vsc_cap_amount / vsc_percent
+        vsc_threshold_msrp_text = f"${vsc_threshold_msrp:,.0f}"
+
+        prompt = """
 You are **SmartBuyer AI Contract Analysis Engine**. Analyze auto finance contracts comprehensively.
+- Maintenance plans overpriced (>$1,200): **-6**
 
 ---
 
@@ -416,6 +454,7 @@ else:
     gap_present = FALSE
 
 # Step 2: Calculate GAP cap
+# Step 2: Calculate GAP cap
 gap_cap = min($1,200, 3% of MSRP, $1,500 if MSRP >= $60,000)
 
 # Step 3: Determine flag (ONLY ONE outcome)
@@ -439,14 +478,19 @@ else:
 
 ### 2) GAP Pricing Caps (Clarified Formula)
 GAP price must be ≤ LOWEST of:
+GAP price must be ≤ LOWEST of:
 - **$1,200 (standard cap)**
 - **3% of MSRP**
 - **$1,500 ONLY if MSRP ≥$60,000**
+**SmartBuyer VSC Cap = min(15% of MSRP, $6,000)**
+vsc_cap = min(vsc_15_percent, $6,000)
+**For vehicles with MSRP ≥$40,000, the cap is effectively $6,000**
+
 
 **Cap Calculation Examples:**
-- MSRP $40,000: 3% = $1,200 → Cap = min($1,200, $1,200) = **$1,200**
-- MSRP $69,625: 3% = $2,088.75 → Cap = min($1,200, $2,088.75, $1,500) = **$1,200**
-- MSRP $80,000: 3% = $2,400 → Cap = min($1,200, $2,400, $1,500) = **$1,200**
+- MSRP $40,000: 3% = $1,200 -> Cap = min($1,200, $1,200) = **$1,200**
+- MSRP $69,625: 3% = $2,088.75 -> Cap = min($1,200, $2,088.75, $1,500) = **$1,200**
+- MSRP $80,000: 3% = $2,400 -> Cap = min($1,200, $2,400, $1,500) = **$1,200**
 
 ### 3) Effective Down Payment Definition
 `Effective_Down = Cash_Down + max(Trade_Equity, 0)`
@@ -650,10 +694,10 @@ if state == "TX":
 3. Use the LOWER value as the threshold
 
 **Examples:**
-- MSRP $30,000: 15% = $4,500 → Cap = min($4,500, $6,000) = **$4,500**
-- MSRP $40,000: 15% = $6,000 → Cap = min($6,000, $6,000) = **$6,000**
-- MSRP $69,625: 15% = $10,443.75 → Cap = min($10,443.75, $6,000) = **$6,000**
-- MSRP $80,000: 15% = $12,000 → Cap = min($12,000, $6,000) = **$6,000**
+- MSRP $30,000: 15% = $4,500 -> Cap = min($4,500, $6,000) = **$4,500**
+- MSRP $40,000: 15% = $6,000 -> Cap = min($6,000, $6,000) = **$6,000**
+- MSRP $69,625: 15% = $10,443.75 -> Cap = min($10,443.75, $6,000) = **$6,000**
+- MSRP $80,000: 15% = $12,000 -> Cap = min($12,000, $6,000) = **$6,000**
 
 **For vehicles with MSRP ≥$40,000, the cap is effectively $6,000**
 
@@ -687,7 +731,7 @@ else:  # vsc_price > vsc_cap
 # 15% = $10,443.75
 # Cap = min($10,443.75, $6,000) = $6,000
 # VSC price = $3,500
-# Is $3,500 <= $6,000? YES → GREEN FLAG
+# Is $3,500 <= $6,000? YES -> GREEN FLAG
 ```
 
 **VSC Logic Rules — NEVER DO THESE:**
@@ -928,8 +972,8 @@ The "narrative" object MUST be analytical, descriptive and contain these specifi
   * Suppress pricing evaluation for undisclosed products
 
 ### YOU MUST:
-1. Extract vehicle cash price → output as "selling_price"
-2. Extract Amount Financed from Truth-in-Lending → use internally
+1. Extract vehicle cash price -> output as "selling_price"
+2. Extract Amount Financed from Truth-in-Lending -> use internally
 3. NEVER overwrite selling_price with Amount Financed
 
 ---
@@ -1123,15 +1167,15 @@ Authoritative trade definitions:
 Before returning JSON:
 - ✅ **VSC cap = min(15% × MSRP, $6,000) - ALWAYS**
 - ✅ **VSC = ONE outcome only using correct cap formula**
-- ✅ **If VSC ≤ cap → GREEN FLAG (+3), NO red flag**
-- ✅ **If VSC > cap → RED FLAG (-10), NO green flag**
+- ✅ **If VSC ≤ cap -> GREEN FLAG (+3), NO red flag**
+- ✅ **If VSC > cap -> RED FLAG (-10), NO green flag**
 - ✅ **GAP recognized if DCA, Debt Cancellation Agreement, or any synonym present**
-- ✅ **If GAP/DCA found → gap_present = TRUE**
+- ✅ **If GAP/DCA found -> gap_present = TRUE**
 - ✅ **GAP pricing uses min($1,200, 3% MSRP, $1,500 if MSRP≥$60k) formula**
-- ✅ **If gap_price <= gap_cap → GREEN FLAG ONLY (+5), NO red/blue flags**
-- ✅ **If gap_price > gap_cap → RED FLAG ONLY (-10), NO green/blue flags**
-- ✅ **If GAP not present + $0 down + ≤-$1,000 equity → RED FLAG "High-Risk Without GAP"**
-- ✅ **Texas doc fees $150-$250 → NO red flag, NO blue flag, optionally green or neutral**
+- ✅ **If gap_price <= gap_cap -> GREEN FLAG ONLY (+5), NO red/blue flags**
+- ✅ **If gap_price > gap_cap -> RED FLAG ONLY (-10), NO green/blue flags**
+- ✅ **If GAP not present + $0 down + ≤-$1,000 equity -> RED FLAG "High-Risk Without GAP"**
+- ✅ **Texas doc fees $150-$250 -> NO red flag, NO blue flag, optionally green or neutral**
 - ✅ **Logic matches prior successful audits**
 - ✅ selling_price = vehicle cash price ONLY
 - ✅ selling_price ≠ Amount Financed (unless no taxes/fees)
@@ -1162,6 +1206,41 @@ Before returning JSON:
 
 **Return ONLY valid JSON - no markdown, no explanation, no extra text.**
 """
+
+        prompt = prompt.replace(
+            "Maintenance plans overpriced (>$1,200)",
+            f"Maintenance plans overpriced (>{maintenance_cap_text})",
+        )
+        prompt = prompt.replace(
+            "min($1,200, 3% of MSRP, $1,500 if MSRP >= $60,000)",
+            f"min({gap_cap_standard_text}, {gap_percent_text} of MSRP, {gap_cap_over_text} if MSRP >= {gap_msrp_threshold_text})",
+        )
+        prompt = prompt.replace(
+            "- **$1,200 (standard cap)**",
+            f"- **{gap_cap_standard_text} (standard cap)**",
+        )
+        prompt = prompt.replace(
+            "- **3% of MSRP**",
+            f"- **{gap_percent_text} of MSRP**",
+        )
+        prompt = prompt.replace(
+            "- **$1,500 ONLY if MSRP ≥$60,000**",
+            f"- **{gap_cap_over_text} ONLY if MSRP ≥{gap_msrp_threshold_text}**",
+        )
+        prompt = prompt.replace(
+            "**SmartBuyer VSC Cap = min(15% of MSRP, $6,000)**",
+            f"**SmartBuyer VSC Cap = min({vsc_percent_text} of MSRP, {vsc_cap_text})**",
+        )
+        prompt = prompt.replace(
+            "vsc_cap = min(vsc_15_percent, $6,000)",
+            f"vsc_cap = min(vsc_15_percent, {vsc_cap_text})",
+        )
+        prompt = prompt.replace(
+            "**For vehicles with MSRP ≥$40,000, the cap is effectively $6,000**",
+            f"**For vehicles with MSRP ≥{vsc_threshold_msrp_text}, the cap is effectively {vsc_cap_text}**",
+        )
+
+        return prompt
     
     async def _validate_files(self, files: List[UploadFile]) -> List[UploadFile]:
         """Validate uploaded files"""
